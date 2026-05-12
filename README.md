@@ -1,5 +1,3 @@
-# MiniDelphi
-
 # MiniDelphi — A Toy Compiler & Learning IDE
 
 > *Copyright © 2026 Nomidor Software, LLC. All rights reserved.*
@@ -334,6 +332,14 @@ The interpreter runs on the VCL main thread. `Application.ProcessMessages` insid
 
 ## Licence
 
-Copyright © 2026 Nomidor Software, LLC. All rights reserved.
+Copyright © 2026 Nomidor Software, LLC.
 
-Unauthorised copying, distribution, or modification is prohibited.
+MiniDelphi is free software released under the **GNU General Public License v3.0**.
+
+You are free to use, study, modify, and distribute this software under the terms of the GPL v3. Any modified version you distribute must also be released under the GPL v3 and must clearly attribute the original work to Nomidor Software, LLC.
+
+Nomidor Software, LLC retains full copyright ownership of the original source code. The GPL licence grants you rights to use and build upon it — it does not transfer ownership.
+
+See the [LICENSE](LICENSE) file for the full licence text, or visit [gnu.org/licenses/gpl-3.0](https://www.gnu.org/licenses/gpl-3.0.html).
+
+> **In plain English:** Use it, learn from it, modify it, share it — just keep it open source and give credit to Nomidor Software, LLC.
