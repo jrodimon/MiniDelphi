@@ -1,4 +1,4 @@
-# MiniDelphi — A light Compiler & Learning IDE
+# MiniDelphi — An Interpeter & Learning IDE
 
 > *Copyright © 2026 Nomidor Software, LLC. All rights reserved.*
 
