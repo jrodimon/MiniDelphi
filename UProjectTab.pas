@@ -87,7 +87,8 @@ type
     FBtnRun         : TButton;
     FBtnNewProj     : TButton;
     FBtnOpenProj    : TButton;
-    FBtnNewLib      : TButton;
+    //FBtnNewLib      : TButton;
+    FBtnStop        : TButton;
     FLabelFile      : TLabel;
 
     // Left tree (examples + recent)
@@ -108,6 +109,9 @@ type
     FNodeRecent     : TTreeNode;
     FNodeExamples   : TTreeNode;
 
+    //nil when not running
+    FInterp : TInterpreter;
+
     // ── Helpers ──────────────────────────────────────────────────────────────
     procedure BuildUI;
     procedure BuildTree;
@@ -126,9 +130,10 @@ type
     procedure OnSave      (Sender: TObject);
     procedure OnSaveAs    (Sender: TObject);
     procedure OnRun       (Sender: TObject);
+    procedure OnStop      (Sender: TObject);
     procedure OnNewProject(Sender: TObject);
     procedure OnOpenProject(Sender: TObject);
-    procedure OnNewLibrary (Sender: TObject);
+    //procedure OnNewLibrary (Sender: TObject);
     procedure OnTreeDblClick(Sender: TObject);
     procedure OnEditorChange(Sender: TObject);
     procedure OnEditorKey (Sender: TObject; var Key: Word; Shift: TShiftState);
@@ -261,6 +266,12 @@ begin
   inherited;
 end;
 
+procedure TProjectTab.OnStop(Sender: TObject);
+begin
+  if Assigned(FInterp) then
+    FInterp.RequestStop;
+end;
+
 // ---------------------------------------------------------------------------
 //  Build the entire UI
 // ---------------------------------------------------------------------------
@@ -291,6 +302,8 @@ const
 
 var X : Integer;
 begin
+  if FParent = nil then
+    raise Exception.Create('TProjectTab requires a non-nil parent');
   // Outer panel
   FOuterPanel            := TPanel.Create(FParent);
   FOuterPanel.Parent     := FParent;
@@ -307,17 +320,15 @@ begin
   FToolBar.Color         := $00303030;
 
   X := PAD;
-  Btn(FBtnNew,      FToolBar, '📄 New',       X, OnNew,        'New file  (Ctrl+N)');
-  Btn(FBtnOpen,     FToolBar, '📂 Open',      X, OnOpen,       'Open .mdp file  (Ctrl+O)');
-  Btn(FBtnSave,     FToolBar, '💾 Save',      X, OnSave,       'Save  (Ctrl+S)');
-  Btn(FBtnSaveAs,   FToolBar, '💾 Save As',   X, OnSaveAs,     'Save with new name');
-  Btn(FBtnRun,      FToolBar, '▶ Run',        X, OnRun,        'Run this program  (F5)');
-
-  // Separator gap
+  Btn(FBtnNew,      FToolBar, 'New',       X, OnNew,        'New file  (Ctrl+N)');
+  Btn(FBtnOpen,     FToolBar, 'Open',      X, OnOpen,       'Open .mdp file  (Ctrl+O)');
+  Btn(FBtnSave,     FToolBar, 'Save',      X, OnSave,       'Save  (Ctrl+S)');
+  Btn(FBtnSaveAs,   FToolBar, 'Save As',   X, OnSaveAs,     'Save with new name');
+  Btn(FBtnRun,      FToolBar, 'Run',       X, OnRun,        'Run this program  (F5)');
+  Btn(FBtnStop,     FToolBar, 'Stop',      X, OnStop,       'Stop running program');
   Inc(X, PAD * 2);
-
-  Btn(FBtnNewProj,  FToolBar, '🗂 New Proj',  X, OnNewProject, 'Create a new project');
-  Btn(FBtnOpenProj, FToolBar, '📁 Open Proj', X, OnOpenProject,'Open an existing project');
+  Btn(FBtnNewProj,  FToolBar, 'New Proj',  X, OnNewProject, 'Create a new project');
+  Btn(FBtnOpenProj, FToolBar, 'Open Proj', X, OnOpenProject,'Open an existing project');
 
   // File label
   FLabelFile              := TLabel.Create(FToolBar);
@@ -563,9 +574,10 @@ var
   Lex   : TLexer;
   Par   : TParser;
   Prog  : TProgramNode;
-  Interp: TInterpreter;
   T0    : Cardinal;
 begin
+  if Assigned(FInterp) then Exit;  // already running
+
   FOutput.Clear;
   FOutput.Lines.Add('Running...');
   T0 := GetTickCount;
@@ -578,21 +590,20 @@ begin
       try
         Prog := Par.Parse;
         try
-          Interp := TInterpreter.Create(Prog, FOutput.Lines);
+          FInterp := TInterpreter.Create(Prog, FOutput.Lines);
           try
             FOutput.Lines.Clear;
-            Interp.SourceText := FEditor.Lines.Text;
-            // Give the loader the folder of the current file so imports resolve correctly
+            FInterp.SourceText := FEditor.Lines.Text;
             if FCurrentFile <> '' then
-              Interp.SourcePath := ExtractFilePath(FCurrentFile)
+              FInterp.SourcePath := ExtractFilePath(FCurrentFile)
             else
-              Interp.SourcePath := GetCurrentDir;
-            Interp.Run;
+              FInterp.SourcePath := GetCurrentDir;
+            FInterp.Run;
             FOutput.Lines.Add('');
-            FOutput.Lines.Add(Format('─── Done  (%d ms) ───',
-              [GetTickCount - T0]));
+            FOutput.Lines.Add(Format('─── Done  (%d ms) ───', [GetTickCount - T0]));
           finally
-            Interp.Free;
+            FInterp.Free;
+            FInterp := nil;
           end;
         finally
           Prog.Free;
@@ -607,11 +618,10 @@ begin
     on E: Exception do
     begin
       FOutput.Lines.Add('');
-      FOutput.Lines.Add('*** ERROR: ' + E.Message);
+      FOutput.Lines.Add('*** ' + E.Message);
     end;
   end;
 end;
-
 // ---------------------------------------------------------------------------
 //  EVENT HANDLERS
 // ---------------------------------------------------------------------------
@@ -903,6 +913,7 @@ begin
   end;
 end;
 
+{
 procedure TProjectTab.OnNewLibrary(Sender: TObject);
 var
   LibName  : string;
@@ -969,5 +980,6 @@ function IfThen(B: Boolean; const T, F: string): string;
 begin
   if B then Result := T else Result := F;
 end;
+}
 
 end.

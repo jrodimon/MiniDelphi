@@ -1,4 +1,4 @@
-unit UAST;
+﻿unit UAST;
 
 // =============================================================================
 // Copyright (c) 2026 Nomidor Software, LLC.
@@ -651,9 +651,9 @@ begin
 end;
 destructor TRoutineDecl.Destroy;
 begin
-  Params.Free;
-  Locals.Free;
-  Body.Free;
+  FreeAndNil(Params);
+  FreeAndNil(Locals);
+  FreeAndNil(Body);
   inherited;
 end;
 
@@ -666,9 +666,9 @@ begin
 end;
 destructor TMethodDecl.Destroy;
 begin
-  Params.Free;
-  Locals.Free;
-  Body.Free;
+  FreeAndNil(Params);
+  FreeAndNil(Locals);
+  FreeAndNil(Body);
   inherited;
 end;
 

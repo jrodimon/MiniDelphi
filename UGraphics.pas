@@ -1,11 +1,15 @@
-unit UGraphics;
+﻿unit UGraphics;
 
 // =============================================================================
-// Copyright (c) 2026 Nomidor Software, LLC.
-// All rights reserved.
-//
 // MiniDelphi Toy Compiler & Learning IDE
-// Unauthorised copying, distribution or modification is prohibited.
+// Copyright (C) 2026 Nomidor Software, LLC.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// See the LICENSE file or https://www.gnu.org/licenses/gpl-3.0.html
 // =============================================================================
 //
 //  UGraphics.pas  -  Thread-safe animation window for MiniDelphi
@@ -137,9 +141,13 @@ var
 begin
   DC := BeginPaint(Handle, PS);
   try
-    if Assigned(FBitmap) and (FBitmap.Width > 0) then
-      BitBlt(DC, 0, 0, FBitmap.Width, FBitmap.Height,
-             FBitmap.Canvas.Handle, 0, 0, SRCCOPY);
+    try
+      if Assigned(FBitmap) and (FBitmap.Width > 0) then
+        BitBlt(DC, 0, 0, FBitmap.Width, FBitmap.Height,
+               FBitmap.Canvas.Handle, 0, 0, SRCCOPY);
+    except
+      // Suppress paint errors after window teardown
+    end;
   finally
     EndPaint(Handle, PS);
   end;

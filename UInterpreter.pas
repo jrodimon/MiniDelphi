@@ -1,11 +1,15 @@
-unit UInterpreter;
+﻿unit UInterpreter;
 
 // =============================================================================
-// Copyright (c) 2026 Nomidor Software, LLC.
-// All rights reserved.
-//
 // MiniDelphi Toy Compiler & Learning IDE
-// Unauthorised copying, distribution or modification is prohibited.
+// Copyright (C) 2026 Nomidor Software, LLC.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// See the LICENSE file or https://www.gnu.org/licenses/gpl-3.0.html
 // =============================================================================
 
 // =============================================================================
@@ -110,7 +114,7 @@ type
     FSteps     : Int64;
     FSourcePath: string;               // folder of the .mdp file (for unit loading)
     FSourceText: string;               // raw source (so loader can scan uses clause)
-
+    FStop : Boolean;
     procedure Tick;
     procedure RegisterRoutines;
     procedure DeclareVars(Env: TEnvironment; Decls: TVarDeclList);
@@ -163,7 +167,7 @@ type
 
     // Run the program; raises on error or step limit
     procedure Run;
-
+    procedure RequestStop;
     // Optionally pre-load a string that readln will consume
     property InputLine   : string  read FInputLine   write FInputLine;
     property MaxSteps    : Int64   read FMaxSteps    write FMaxSteps;
@@ -341,6 +345,15 @@ end;
 
 { TInterpreter }
 
+procedure TInterpreter.Tick;
+begin
+  if FStop then
+    raise Exception.Create('Execution stopped by user');
+  Inc(FSteps);
+  if FSteps > FMaxSteps then
+    raise Exception.Create('Step limit reached — possible infinite loop');
+end;
+
 constructor TInterpreter.Create(AProgram: TProgramNode; AOutput: TStrings);
 begin
   inherited Create;
@@ -350,6 +363,12 @@ begin
   FRoutines := TRoutineDeclMap.Create;
   FMaxSteps := 1000000;   // safety limit
   FSteps    := 0;
+  FStop := False;
+end;
+
+procedure TInterpreter.RequestStop;
+begin
+  FStop := True;
 end;
 
 destructor TInterpreter.Destroy;
@@ -365,20 +384,55 @@ begin
     FOutput.Add(S);
 end;
 
-procedure TInterpreter.Tick;
-begin
-  Inc(FSteps);
-  if FSteps > FMaxSteps then
-    raise Exception.Create('Step limit reached — possible infinite loop');
-end;
-
 procedure TInterpreter.RegisterRoutines;
 var
-  R   : TRoutineDecl;
-  RRI : Integer;
+  R       : TRoutineDecl;
+  RRI     : Integer;
+  DotPos  : Integer;
+  CName   : string;
+  MName   : string;
+  CD      : TClassDecl;
+  MI      : Integer;
 begin
   for RRI := 0 to FProgram.Routines.Count - 1 do
-    FRoutines.AddOrSetValue(LowerCase(FProgram.Routines[RRI].Name), FProgram.Routines[RRI]);
+  begin
+    R      := FProgram.Routines[RRI];
+    DotPos := Pos('.', R.Name);
+    if DotPos > 0 then
+    begin
+      // "TGreeter.SayHello" — wire body into class method
+      CName := Copy(R.Name, 1, DotPos - 1);
+      MName := Copy(R.Name, DotPos + 1, Length(R.Name));
+      CD    := ClassRegistry.FindClass(CName);
+      if Assigned(CD) then
+      begin
+        for MI := 0 to CD.Methods.Count - 1 do
+          if LowerCase(CD.Methods[MI].Name) = LowerCase(MName) then
+          begin
+            // Move body ownership from TRoutineDecl to TMethodDecl.
+            // Free the empty lists TMethodDecl created in its constructor,
+            // then take the populated ones from TRoutineDecl.
+            // Finally nil the TRoutineDecl references so its destructor
+            // does not double-free them.
+            CD.Methods[MI].Body.Free;
+            CD.Methods[MI].Body   := R.Body;
+            CD.Methods[MI].Params.Free;
+            CD.Methods[MI].Params := R.Params;
+            CD.Methods[MI].Locals.Free;
+            CD.Methods[MI].Locals := R.Locals;
+            // Nil in the routine so TRoutineDecl.Destroy does not free them
+            R.Body   := nil;
+            R.Params := nil;
+            R.Locals := nil;
+            Break;
+          end;
+      end;
+      // Also register in FRoutines by short name as fallback
+      FRoutines.AddOrSetValue(LowerCase(CName + '.' + MName), R);
+    end
+    else
+      FRoutines.AddOrSetValue(LowerCase(R.Name), R);
+  end;
 end;
 
 procedure TInterpreter.DeclareVars(Env: TEnvironment; Decls: TVarDeclList);
@@ -388,6 +442,7 @@ var
   TN  : string;
   DVI : Integer;
 begin
+  if not Assigned(Decls) then Exit;  // nil-safe guard
   for DVI := 0 to Decls.Count - 1 do
   begin
     D := Decls[DVI];
@@ -782,6 +837,7 @@ begin
   Env := TEnvironment.Create(FGlobal);
   try
     // Bind parameters
+    if Assigned(Decl.Params) then
     for I := 0 to Decl.Params.Count - 1 do
     begin
       Param := Decl.Params[I];
@@ -793,7 +849,7 @@ begin
     end;
 
     // Declare local variables
-    DeclareVars(Env, Decl.Locals);
+    if Assigned(Decl.Locals) then DeclareVars(Env, Decl.Locals);
 
     // Pre-declare Result variable for functions
     if Decl.ReturnType <> '' then
@@ -1377,21 +1433,29 @@ begin
     Env.DeclareVar('self', TValue.MakeObject(Obj));
 
     // Bind object fields as local variables that sync back
-    KeyList := TList<string>.Create;
-    try
-      for FKey in Obj.Fields.Keys do KeyList.Add(FKey);
-      for KI := 0 to KeyList.Count - 1 do
-      begin
-        FKey := KeyList[KI];
-        FPtr := Obj.Fields[FKey];
-        if Assigned(FPtr) then
-          Env.DeclareVar(FKey, TValue(FPtr^));
+    if Assigned(Obj) and Assigned(Obj.Fields) then
+    begin
+      KeyList := TList<string>.Create;
+      try
+        try
+          for FKey in Obj.Fields.Keys do KeyList.Add(FKey);
+        except
+          // Ignore corrupted field iteration — object may be partially freed
+        end;
+          for KI := 0 to KeyList.Count - 1 do
+        begin
+          FKey := KeyList[KI];
+          FPtr := Obj.Fields[FKey];
+          if Assigned(FPtr) then
+            Env.DeclareVar(FKey, TValue(FPtr^));
+        end;
+      finally
+        KeyList.Free;
       end;
-    finally
-      KeyList.Free;
     end;
 
     // Bind parameters
+    if Assigned(M.Params) then
     for I := 0 to M.Params.Count - 1 do
     begin
       Param := M.Params[I];
@@ -1403,7 +1467,7 @@ begin
     end;
 
     // Declare local variables
-    DeclareVars(Env, M.Locals);
+    if Assigned(M.Locals) then DeclareVars(Env, M.Locals);
 
     // Pre-declare Result for functions
     if M.ReturnType <> '' then
@@ -1422,27 +1486,30 @@ begin
       Env.GetVar('result', Result);
 
     // Write field values BACK to the object
-    KeyList := TList<string>.Create;
-    try
-      for FKey in Obj.Fields.Keys do KeyList.Add(FKey);
-      for KI := 0 to KeyList.Count - 1 do
-      begin
-        FKey := KeyList[KI];
-        if Env.GetVar(FKey, UpdVal) then
+    if Assigned(Obj) and Assigned(Obj.Fields) then
+    begin
+      KeyList := TList<string>.Create;
+      try
+        for FKey in Obj.Fields.Keys do KeyList.Add(FKey);
+        for KI := 0 to KeyList.Count - 1 do
         begin
-          FPtr := Obj.Fields[FKey];
-          if Assigned(FPtr) then
-            TValue(FPtr^) := UpdVal
-          else
+          FKey := KeyList[KI];
+          if Env.GetVar(FKey, UpdVal) then
           begin
-            New(PVal);
-            PVal^ := UpdVal;
-            Obj.Fields[FKey] := PVal;
+            FPtr := Obj.Fields[FKey];
+            if Assigned(FPtr) then
+              TValue(FPtr^) := UpdVal
+            else
+            begin
+              New(PVal);
+              PVal^ := UpdVal;
+              Obj.Fields[FKey] := PVal;
+            end;
           end;
         end;
+      finally
+        KeyList.Free;
       end;
-    finally
-      KeyList.Free;
     end;
 
   finally
@@ -1460,13 +1527,34 @@ var
   Obj   : TObjectInstance;
   FPtr  : Pointer;
   FName : string;
+  CE    : TCreateExpr;
 begin
   Result := TValue.MakeNil;
+
+  // ClassName.Create (no parens) — treat as object construction
+  if (Node.Obj is TVarExpr) and
+     ClassRegistry.ClassExists(TVarExpr(Node.Obj).Name) and
+     (LowerCase(Node.FieldName) = 'create') then
+  begin
+    CE := TCreateExpr.Create;
+    CE.ClassRef := TVarExpr(Node.Obj).Name;
+    Result := EvalCreateExpr(CE, Env);
+    CE.Free;
+    Exit;
+  end;
+
   OV := EvalExpr(Node.Obj, Env);
 
   if OV.Kind <> vkObject then
     raise Exception.CreateFmt('Cannot access field "%s" on non-object',
       [Node.FieldName]);
+
+  // Built-in pseudo-fields on all objects
+  if LowerCase(Node.FieldName) = 'classname' then
+  begin
+    Result := TValue.MakeStr(OV.ObjVal.ObjClass);
+    Exit;
+  end;
 
   Obj   := OV.ObjVal;
   FName := LowerCase(Node.FieldName);
@@ -1509,22 +1597,20 @@ begin
 
   OV := EvalExpr(Node.Obj, Env);
 
-  // Handle Free / Destroy silently
-  if LowerCase(Node.MethodName) = 'free'    then Exit;
-  if LowerCase(Node.MethodName) = 'destroy' then Exit;
+  // Handle Free silently
+  if LowerCase(Node.MethodName) = 'free' then Exit;
 
   if OV.Kind <> vkObject then
     raise Exception.CreateFmt('Cannot call method "%s" on non-object',
       [Node.MethodName]);
 
   Obj := OV.ObjVal;
-  ML  := ClassRegistry.ResolveMethod(Obj.ObjClass, Node.MethodName);
+  if not Assigned(Obj) then Exit;
 
-  if not ML.Found then
-    raise Exception.CreateFmt('Unknown method "%s" on class "%s"',
-      [Node.MethodName, Obj.ObjClass]);
-
-  Result := InvokeMethod(Obj, ML.Method, Node.Args, Env);
+  ML := ClassRegistry.ResolveMethod(Obj.ObjClass, Node.MethodName);
+  if ML.Found then
+    Result := InvokeMethod(Obj, ML.Method, Node.Args, Env);
+  // Unknown method on object — silently ignore (e.g. inherited Destroy)
 end;
 
 // ---------------------------------------------------------------------------
@@ -1542,6 +1628,13 @@ var
 begin
   OV := EvalExpr(Node.Obj, Env);
 
+  // If the "object" is actually a class name with a special method on it,
+  // silently skip (construction is handled in EvalFieldExpr)
+  if (OV.Kind = vkNil) and
+     (Node.Obj is TVarExpr) and
+     ClassRegistry.ClassExists(TVarExpr(Node.Obj).Name) then
+    Exit;
+
   if OV.Kind <> vkObject then
     raise Exception.CreateFmt('Cannot assign field "%s" on non-object',
       [Node.FieldName]);
@@ -1558,6 +1651,10 @@ begin
     FPtr^ := Val;
     Obj.Fields.AddOrSetValue(FName, FPtr);
   end;
+  // Also update the local env var so the end-of-method sync
+  // does not overwrite this value with the stale pre-entry value
+  if Env.HasVar(FName) then
+    Env.SetVar(FName, Val);
 end;
 
 // ---------------------------------------------------------------------------
@@ -1572,22 +1669,21 @@ var
 begin
   OV := EvalExpr(Node.Obj, Env);
 
-  // Handle Free/Destroy silently
-  if LowerCase(Node.MethodName) = 'free'    then Exit;
-  if LowerCase(Node.MethodName) = 'destroy' then Exit;
+  // Handle Free silently
+  if LowerCase(Node.MethodName) = 'free' then Exit;
 
   if OV.Kind <> vkObject then
     raise Exception.CreateFmt('Cannot call method "%s" on non-object',
       [Node.MethodName]);
 
   Obj := OV.ObjVal;
+  if not Assigned(Obj) then Exit;
+
   ML  := ClassRegistry.ResolveMethod(Obj.ObjClass, Node.MethodName);
 
-  if not ML.Found then
-    raise Exception.CreateFmt('Unknown method "%s" on class "%s"',
-      [Node.MethodName, Obj.ObjClass]);
-
-  InvokeMethod(Obj, ML.Method, Node.Args, Env);
+  if ML.Found then
+    InvokeMethod(Obj, ML.Method, Node.Args, Env);
+  // If method not found (e.g. inherited Destroy), silently ignore
 end;
 
 // ---------------------------------------------------------------------------

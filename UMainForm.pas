@@ -1,19 +1,23 @@
 ﻿unit UMainForm;
 
 // =============================================================================
-// Copyright (c) 2026 Nomidor Software, LLC.
-// All rights reserved.
-//
 // MiniDelphi Toy Compiler & Learning IDE
-// Unauthorised copying, distribution or modification is prohibited.
+// Copyright (C) 2026 Nomidor Software, LLC.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// See the LICENSE file or https://www.gnu.org/licenses/gpl-3.0.html
 // =============================================================================
 
 // =============================================================================
 //  UMainForm.pas  -  VCL front-end for the MiniDelphi Toy Compiler
 //
 //  Two tabs:
-//    [Compiler]   — source editor, lexer, parser, runner
-//    [Calculator] — type any expression, press Enter or =, see the answer
+//    [Compiler]   -- source editor, lexer, parser, runner
+//    [Calculator] -- type any expression, press Enter or =, see the answer
 // =============================================================================
 
 interface
@@ -24,7 +28,7 @@ uses
   System.Math,
   Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.ExtCtrls,
   Vcl.Menus, Vcl.ComCtrls, Vcl.Buttons, Vcl.Graphics,
-  ULexer, UParser, UAST, UInterpreter, ULearnTab,
+  ULexer, UParser, UAST, UInterpreter, UValidator, ULearnTab,
   UProjectTab, UExampleProjects;
 
 type
@@ -90,6 +94,9 @@ type
     procedure BuildCalcTab;
     procedure BuildExamples;
     procedure SetStatus(const Msg: string; IsError: Boolean = False);
+    procedure HighlightErrorLine(Line: Integer);
+    procedure ClearHighlight;
+    procedure ShowValidationResults(V: TValidator; ParseErr: string; ParseLine, ParseCol: Integer);
     procedure ShowTokens(Tokens: TList<TToken>);
     procedure EvalExpression;
 
@@ -98,12 +105,12 @@ type
     procedure OnRun            (Sender: TObject);
     procedure OnClear          (Sender: TObject);
     procedure OnExample        (Sender: TObject);
+    procedure OnExampleClick   (Sender: TObject);
     procedure OnAbout          (Sender: TObject);
     procedure OnCalcBtn        (Sender: TObject);
     procedure OnCalcKey        (Sender: TObject; var Key: Char);
     procedure OnCalcSpecialKey (Sender: TObject; var Key: Word;
                                 Shift: TShiftState);
-    procedure ExampleItemOnClick (Sender: TObject);
   public
     constructor Create(AOwner: TComponent); override;
   end;
@@ -255,7 +262,7 @@ const
     '  writeln(''Concat    : '', s + '' (and more!)'');'             + #13#10 +
     'end.',
 
-    // 6 — case (integer)
+    // 6 -- case (integer)
     'program CaseDemo;'                                              + #13#10 +
     ''                                                               + #13#10 +
     'var'                                                            + #13#10 +
@@ -290,7 +297,7 @@ const
     '  end;'                                                          + #13#10 +
     'end.',
 
-    // 7 — caseof (string switch — our MiniDelphi invention)
+    // 7 -- caseof (string switch -- our MiniDelphi invention)
     'program CaseOfDemo;'                                            + #13#10 +
     ''                                                               + #13#10 +
     'procedure Describe(animal: String);'                            + #13#10 +
@@ -343,13 +350,13 @@ begin
   FTabCalc.PageControl     := FPages;
   FTabCalc.Caption         := '  Calculator  ';
 
-  FTabLearn                := TTabSheet.Create(FPages);
-  FTabLearn.PageControl    := FPages;
-  FTabLearn.Caption        := '  Learn  ';
+  FTabLearn                := TTabSheet.Create(FPages);   // <-- ADD
+  FTabLearn.PageControl    := FPages;                     // <-- ADD
+  FTabLearn.Caption        := '  Learn Delphi  ';         // <-- ADD
 
-  FTabProject              := TTabSheet.Create(FPages);
-  FTabProject.PageControl  := FPages;
-  FTabProject.Caption      := '  Project  ';
+  FTabProject              := TTabSheet.Create(FPages);   // <-- ADD
+  FTabProject.PageControl  := FPages;                     // <-- ADD
+  FTabProject.Caption      := '  Projects  ';             // <-- ADD
 
   BuildCompilerTab;
   BuildCalcTab;
@@ -358,7 +365,7 @@ begin
   BuildExamples;
 
   FMemoSrc.Lines.Text := EXAMPLE_CODE[0];
-  SetStatus('Ready — try the Calculator tab for quick maths, or Run the example above.');
+  SetStatus('Ready -- try the Calculator tab for quick maths, or Run the example above.');
 end;
 
 // =============================================================================
@@ -405,7 +412,7 @@ begin
 
   FBtnExample         := TButton.Create(FToolPanel);
   FBtnExample.Parent  := FToolPanel;
-  FBtnExample.Caption := '📖 Examples ▾';
+  FBtnExample.Caption := '[Examples] Examples v';
   FBtnExample.Left    := X;  FBtnExample.Top := PAD;
   FBtnExample.Width   := BTN_W + 30;  FBtnExample.Height := BTN_H;
   FBtnExample.OnClick := OnExample;
@@ -554,7 +561,7 @@ begin
 
   FCalcLabel                  := TLabel.Create(FCalcInputPanel);
   FCalcLabel.Parent           := FCalcInputPanel;
-  FCalcLabel.Caption          := ' ›';
+  FCalcLabel.Caption          := ' >';
   FCalcLabel.Font.Name        := 'Consolas';
   FCalcLabel.Font.Size        := 16;
   FCalcLabel.Font.Color       := $0056D364;
@@ -603,7 +610,7 @@ begin
   with FCalcHistory.Lines do
   begin
     Add('  MiniDelphi Calculator');
-    Add('  ─────────────────────────────────────');
+    Add('  -------------------------------------');
     Add('  Type any expression and press Enter.');
     Add('');
     Add('  Examples to try:');
@@ -621,7 +628,7 @@ begin
 end;
 
 // =============================================================================
-//  Calculator — evaluate expression via the existing pipeline
+//  Calculator -- evaluate expression via the existing pipeline
 // =============================================================================
 
 procedure TFormMain.EvalExpression;
@@ -671,14 +678,14 @@ begin
       if Output.Count > 0 then Answer := Output[0]
       else Answer := '(no result)';
 
-      FCalcHistory.Lines.Add('  › ' + Raw);
+      FCalcHistory.Lines.Add('  > ' + Raw);
       FCalcHistory.Lines.Add('    = ' + Answer);
       FCalcHistory.Lines.Add('');
 
     except
       on E: Exception do
       begin
-        FCalcHistory.Lines.Add('  › ' + Raw);
+        FCalcHistory.Lines.Add('  > ' + Raw);
         FCalcHistory.Lines.Add('    Error: ' + E.Message);
         FCalcHistory.Lines.Add('');
       end;
@@ -713,16 +720,8 @@ begin
     FCalcEdit.SelectAll;
 end;
 
-procedure TFormMain.ExampleItemOnClick(Sender: TObject);
-    begin
-      FMemoSrc.Lines.Text := EXAMPLE_CODE[(Sender as TMenuItem).Tag];
-      FMemoOut.Clear;
-      FMemoTok.Clear;
-      SetStatus('Example loaded — click Run to execute.');
-   end;
-
 // =============================================================================
-//  COMPILER TAB — example menu
+//  COMPILER TAB -- example menu
 // =============================================================================
 
 procedure TFormMain.BuildExamples;
@@ -736,13 +735,13 @@ begin
     Item         := TMenuItem.Create(FExampleMenu);
     Item.Caption := EXAMPLE_NAMES[I];
     Item.Tag     := I;
-    Item.OnClick := ExampleItemOnClick;
+    Item.OnClick := OnExampleClick;
     FExampleMenu.Items.Add(Item);
   end;
 end;
 
 // =============================================================================
-//  COMPILER TAB — button handlers
+//  COMPILER TAB -- button handlers
 // =============================================================================
 
 procedure TFormMain.SetStatus(const Msg: string; IsError: Boolean);
@@ -783,7 +782,7 @@ begin
     try
       Lex.Tokenise;
       ShowTokens(Lex.Tokens);
-      SetStatus(Format('Lex OK — %d tokens', [Lex.Tokens.Count]));
+      SetStatus(Format('Lex OK -- %d tokens', [Lex.Tokens.Count]));
     finally
       Lex.Free;
     end;
@@ -850,7 +849,7 @@ begin
           AstOut.Add('');
           AstOut.Add('Parse completed successfully.');
           FMemoOut.Lines.Assign(AstOut);
-          SetStatus(Format('Parse OK — %d routines, %d globals',
+          SetStatus(Format('Parse OK -- %d routines, %d globals',
             [Prog.Routines.Count, Prog.Globals.Count]));
         finally
           Prog.Free;
@@ -871,51 +870,238 @@ begin
   AstOut.Free;
 end;
 
+// ---------------------------------------------------------------------------
+//  Highlight a source line red in the editor
+// ---------------------------------------------------------------------------
+procedure TFormMain.HighlightErrorLine(Line: Integer);
+var
+  CharPos : Integer;
+  LineLen : Integer;
+  L       : Integer;
+begin
+  if (Line < 1) or (Line > FMemoSrc.Lines.Count) then Exit;
+  // Move caret to the error line
+  CharPos := 0;
+  for L := 0 to Line - 2 do
+    CharPos := CharPos + Length(FMemoSrc.Lines[L]) + 2;  // +2 for CRLF
+  LineLen := Length(FMemoSrc.Lines[Line - 1]);
+  // Select the entire error line
+  FMemoSrc.SelStart  := CharPos;
+  FMemoSrc.SelLength := LineLen;
+  // Scroll to make it visible
+  FMemoSrc.Perform(EM_SCROLLCARET, 0, 0);
+  FMemoSrc.SetFocus;
+end;
+
+procedure TFormMain.ClearHighlight;
+begin
+  FMemoSrc.SelLength := 0;
+end;
+
+// ---------------------------------------------------------------------------
+//  Show validation results in the output panel
+// ---------------------------------------------------------------------------
+procedure TFormMain.ShowValidationResults(V: TValidator;
+  ParseErr: string; ParseLine, ParseCol: Integer);
+var
+  Issue          : TValidationIssue;
+  Prefix         : string;
+  II             : Integer;
+  ECount, WCount : Integer;
+  FirstErrorLine : Integer;
+begin
+  FMemoOut.Clear;
+
+  // Parse error takes priority
+  if ParseErr <> '' then
+  begin
+    FMemoOut.Lines.Add('+=== PARSE ERROR ==============================');
+    FMemoOut.Lines.Add(Format('|  Line %d, Col %d: %s', [ParseLine, ParseCol, ParseErr]));
+    FMemoOut.Lines.Add('+===============================================');
+    FMemoOut.Lines.Add('');
+    if ParseLine > 0 then
+      HighlightErrorLine(ParseLine);
+    SetStatus(Format('Parse error -- line %d', [ParseLine]), True);
+    Exit;
+  end;
+
+  if V.Issues.Count = 0 then Exit;
+
+  // Show a banner
+  ECount := 0;
+  WCount := 0;
+  for Issue in V.Issues do
+  begin
+    if Issue.Severity = vsError   then Inc(ECount);
+    if Issue.Severity = vsWarning then Inc(WCount);
+  end;
+
+  if ECount > 0 then
+    FMemoOut.Lines.Add(Format('+=== VALIDATION -- %d ERROR(S), %d WARNING(S) ==',
+      [ECount, WCount]))
+  else
+    FMemoOut.Lines.Add(Format('+=== VALIDATION -- %d WARNING(S) ==', [WCount]));
+
+  FirstErrorLine := -1;
+  for II := 0 to V.Issues.Count - 1 do
+  begin
+    Issue := V.Issues[II];
+    case Issue.Severity of
+      vsError   : Prefix := '|  X ERROR';
+      vsWarning : Prefix := '|  ! WARNING';
+      vsHint    : Prefix := '|  i HINT';
+    end;
+
+    if Issue.Line > 0 then
+      FMemoOut.Lines.Add(Format('%s  (line %d): %s', [Prefix, Issue.Line, Issue.Message]))
+    else
+      FMemoOut.Lines.Add(Format('%s: %s', [Prefix, Issue.Message]));
+
+    if Issue.Hint <> '' then
+      FMemoOut.Lines.Add(Format('|     -> %s', [Issue.Hint]));
+
+    // Remember first error line for highlighting
+    if (Issue.Severity = vsError) and (Issue.Line > 0) and (FirstErrorLine < 0) then
+      FirstErrorLine := Issue.Line;
+  end;
+
+  FMemoOut.Lines.Add('+===============================================');
+  FMemoOut.Lines.Add('');
+
+  // Highlight the first error line in the editor
+  if FirstErrorLine > 0 then
+    HighlightErrorLine(FirstErrorLine)
+  else
+    ClearHighlight;
+end;
+
+// ---------------------------------------------------------------------------
+//  Run button -- validate then execute
+// ---------------------------------------------------------------------------
 procedure TFormMain.OnRun(Sender: TObject);
 var
-  Lex   : TLexer;
-  Par   : TParser;
-  Prog  : TProgramNode;
-  Interp: TInterpreter;
-  T0    : Cardinal;
+  Lex       : TLexer;
+  Par       : TParser;
+  Prog      : TProgramNode;
+  Interp    : TInterpreter;
+  Valid     : TValidator;
+  T0        : Cardinal;
+  ParseErr  : string;
+  ParseLine : Integer;
+  ParseCol  : Integer;
+  ECount    : Integer;
+  WCount    : Integer;
+  Issue     : TValidationIssue;
+  FirstErrorLine : Integer;
+  Prefix    : string;
+  II        : Integer;
+  L         : Integer;
 begin
   FMemoOut.Clear;  FMemoTok.Clear;
-  T0 := GetTickCount;
+  ClearHighlight;
+  T0        := GetTickCount;
+  ParseErr  := '';
+  ParseLine := 0;
+  ParseCol  := 0;
+  Prog      := nil;
+  Par       := nil;
+  Lex       := nil;
+
+  // -- Step 1: Lex --------------------------------------------------------
   try
     Lex := TLexer.Create(FMemoSrc.Lines.Text);
-    try
-      Lex.Tokenise;
-      ShowTokens(Lex.Tokens);
-      Par := TParser.Create(Lex.Tokens);
-      try
-        Prog := Par.Parse;
-        try
-          Interp := TInterpreter.Create(Prog, FMemoOut.Lines);
-          try
-            Interp.InputLine  := FEditInput.Text;
-            Interp.SourceText := FMemoSrc.Lines.Text;
-            Interp.Run;
-          finally
-            Interp.Free;
-          end;
-          SetStatus(Format('Run OK  (%d ms)', [GetTickCount - T0]));
-        finally
-          Prog.Free;
-        end;
-      finally
-        Par.Free;
-      end;
-    finally
-      Lex.Free;
-    end;
+    Lex.Tokenise;
+    ShowTokens(Lex.Tokens);
   except
     on E: Exception do
     begin
-      FMemoOut.Lines.Add('');
-      FMemoOut.Lines.Add('*** ERROR: ' + E.Message);
-      SetStatus('Runtime error.', True);
+      ParseErr  := E.Message;
+      ParseLine := 1;
+      ShowValidationResults(nil, ParseErr, ParseLine, 1);
+      Lex.Free;
+      Exit;
     end;
   end;
+
+  // -- Step 2: Parse ------------------------------------------------------
+  try
+    Par  := TParser.Create(Lex.Tokens);
+    Prog := Par.Parse;
+  except
+    on E: EParseError do
+    begin
+      ParseLine := E.Line;
+      ParseCol  := E.Col;
+      ParseErr  := E.Message;
+      ShowValidationResults(nil, ParseErr, ParseLine, ParseCol);
+      Par.Free;  Lex.Free;
+      Exit;
+    end;
+    on E: Exception do
+    begin
+      ParseErr  := E.Message;
+      ParseLine := 1;
+      ShowValidationResults(nil, ParseErr, ParseLine, 1);
+      Par.Free;  Lex.Free;
+      Exit;
+    end;
+  end;
+
+  // -- Step 3: Validate ---------------------------------------------------
+  Valid := TValidator.Create(Prog, FMemoSrc.Lines.Text);
+  try
+    Valid.Validate;
+    ShowValidationResults(Valid, '', 0, 0);
+
+    if Valid.HasErrors then
+    begin
+      SetStatus('Validation failed -- fix errors before running.', True);
+      Prog.Free;  Par.Free;  Lex.Free;
+      Exit;
+    end;
+
+    // Warnings only -- show a short notice and continue
+    if Valid.HasWarnings then
+      FMemoOut.Lines.Add('Warnings noted -- running anyway...');
+
+  finally
+    Valid.Free;
+  end;
+
+  // -- Step 4: Run --------------------------------------------------------
+  try
+    try
+      Interp := TInterpreter.Create(Prog, FMemoOut.Lines);
+      try
+        Interp.InputLine  := FEditInput.Text;
+        Interp.SourceText := FMemoSrc.Lines.Text;
+        Interp.Run;
+      finally
+        Interp.Free;
+      end;
+      ClearHighlight;
+      SetStatus(Format('--- Done  (%d ms) ---', [GetTickCount - T0]));
+    except
+      on E: Exception do
+      begin
+        FMemoOut.Lines.Add('');
+        FMemoOut.Lines.Add('*** ERROR: ' + E.Message);
+        SetStatus('Runtime error.', True);
+      end;
+    end;
+  finally
+    Prog.Free;
+    Par.Free;
+    Lex.Free;
+  end;
+end;
+
+procedure TFormMain.OnExampleClick(Sender: TObject);
+begin
+  FMemoSrc.Lines.Text := EXAMPLE_CODE[(Sender as TMenuItem).Tag];
+  FMemoOut.Clear;
+  FMemoTok.Clear;
+  SetStatus('Example loaded -- click Run to execute.');
 end;
 
 procedure TFormMain.OnClear(Sender: TObject);
@@ -949,23 +1135,23 @@ var
 begin
   Msg :=
     'MiniDelphi Toy Compiler & Learning IDE' + #13#10 +
-    '─────────────────────────────────────────' + #13#10 +
+    '-----------------------------------------' + #13#10 +
     '' + #13#10 +
     'Version 1.0  |  May 2026' + #13#10 +
     '' + #13#10 +
-    'Copyright © 2026 Nomidor Software, LLC.' + #13#10 +
+    'Copyright (c) 2026 Nomidor Software, LLC.' + #13#10 +
     'All rights reserved.' + #13#10 +
     '' + #13#10 +
     'A complete Delphi learning environment featuring:' + #13#10 +
-    '  • Full lexer, parser and interpreter pipeline' + #13#10 +
-    '  • 4 tabs: Compiler, Calculator, Learn Delphi, Projects' + #13#10 +
-    '  • 13 lessons, 45 challenges and a completion certificate' + #13#10 +
-    '  • 40 single-file and 10 multi-file example programs' + #13#10 +
-    '  • OOP: classes, inheritance, interfaces, polymorphism' + #13#10 +
-    '  • SQLite database support (requires sqlite3.dll)' + #13#10 +
-    '  • Unit import system (.mdp library files)' + #13#10 +
-    '  • File dialogs, message boxes, file I/O builtins' + #13#10 +
-    '  • Project save/load with .mdp and .mdproj formats' + #13#10 +
+    '  * Full lexer, parser and interpreter pipeline' + #13#10 +
+    '  * 4 tabs: Compiler, Calculator, Learn Delphi, Projects' + #13#10 +
+    '  * 13 lessons, 45 challenges and a completion certificate' + #13#10 +
+    '  * 40 single-file and 10 multi-file example programs' + #13#10 +
+    '  * OOP: classes, inheritance, interfaces, polymorphism' + #13#10 +
+    '  * SQLite database support (requires sqlite3.dll)' + #13#10 +
+    '  * Unit import system (.mdp library files)' + #13#10 +
+    '  * File dialogs, message boxes, file I/O builtins' + #13#10 +
+    '  * Project save/load with .mdp and .mdproj formats' + #13#10 +
     '' + #13#10 +
     'Built with Embarcadero Delphi 13.' + #13#10 +
     '' + #13#10 +

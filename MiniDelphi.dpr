@@ -1,4 +1,4 @@
-﻿program MiniDelphi;
+program MiniDelphi;
 
 // =============================================================================
 // Copyright (c) 2026 Nomidor Software, LLC.
@@ -33,6 +33,7 @@ uses
   UUnitLoader      in 'UUnitLoader.pas',
   USQLite          in 'USQLite.pas',
   UObjectRuntime   in 'UObjectRuntime.pas',
+  UValidator       in 'UValidator.pas',
   UGraphics        in 'UGraphics.pas';
 
 {$R *.res}

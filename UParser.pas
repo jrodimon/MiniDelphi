@@ -1,11 +1,15 @@
-unit UParser;
+﻿unit UParser;
 
 // =============================================================================
-// Copyright (c) 2026 Nomidor Software, LLC.
-// All rights reserved.
-//
 // MiniDelphi Toy Compiler & Learning IDE
-// Unauthorised copying, distribution or modification is prohibited.
+// Copyright (C) 2026 Nomidor Software, LLC.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// See the LICENSE file or https://www.gnu.org/licenses/gpl-3.0.html
 // =============================================================================
 
 // =============================================================================
@@ -180,9 +184,17 @@ begin
     // Accept var, type, and routine declarations in any order
     // Real Delphi programs often have routines followed by var blocks
     while Current.Kind in [tkVar, tkType, tkProcedure, tkFunction,
-                           tkConstructor_kw, tkDestructor_kw] do
+                           tkConstructor_kw, tkDestructor_kw, tkUses] do
     begin
-      if Current.Kind = tkVar then
+      if Current.Kind = tkUses then
+      begin
+        // Skip the uses clause - unit loading handled by UUnitLoader
+        Consume;  // eat 'uses'
+        while not (Current.Kind in [tkSemicolon, tkEOF]) do
+          Consume;
+        Match(tkSemicolon);
+      end
+      else if Current.Kind = tkVar then
         ParseVarBlock(Node.Globals)
       else if Current.Kind = tkType then
       begin
@@ -197,10 +209,15 @@ begin
         Node.Routines.Add(ParseRoutine);
     end;
 
-    // Main begin..end block
-    Node.MainBlock := ParseBlock;
-    // Eat trailing dot if present
-    Match(tkDot);
+    if Current.Kind = tkBegin then
+    begin
+      Node.MainBlock := ParseBlock;
+      // Eat trailing dot if present
+      Match(tkDot);
+    end
+    else if Current.Kind <> tkEOF then
+      Error(Format('Expected BEGIN or end of file but got ''%s''',
+        [Current.Value]));
 
     Result := Node;
   except
@@ -284,6 +301,13 @@ begin
   Consume;  // eat procedure / function
   R.Name := Expect(tkIdentifier).Value;
 
+  // Handle ClassName.MethodName — e.g.  procedure TGreeter.SayHello;
+  if Current.Kind = tkDot then
+  begin
+    Consume;  // eat the dot
+    R.Name := R.Name + '.' + Expect(tkIdentifier).Value;
+  end;
+
   // Optional parameter list
   if Match(tkLParen) then
   begin
@@ -291,14 +315,17 @@ begin
     Expect(tkRParen);
   end;
 
-  // Return type for functions
+  // Return type for functions (optional for ClassName.Method implementations)
   if IsFunc then
   begin
-    Expect(tkColon);
-    if Current.Kind in [tkInteger_kw, tkString_kw, tkBoolean_kw, tkReal_kw] then
-      R.ReturnType := LowerCase(Consume.Value)
-    else
-      R.ReturnType := Expect(tkIdentifier).Value;
+    if Current.Kind = tkColon then
+    begin
+      Consume;
+      if Current.Kind in [tkInteger_kw, tkString_kw, tkBoolean_kw, tkReal_kw] then
+        R.ReturnType := LowerCase(Consume.Value)
+      else
+        R.ReturnType := Expect(tkIdentifier).Value;
+    end;
   end;
   Expect(tkSemicolon);
 
@@ -396,7 +423,8 @@ begin
     tkContinue  : begin Consume; Result := TContinueStmt.Create; end;
     tkInherited : Result := ParseInherited;
     tkIdentifier,
-    tkResult  : Result := ParseCallOrAssign;
+    tkResult,
+    tkSelf    : Result := ParseCallOrAssign;
   else
     Result := nil;
   end;
@@ -544,11 +572,60 @@ end;
 // ---------------------------------------------------------------------------
 function TParser.ParseCallOrAssign: TStmtNode;
 var
-  Name    : string;
-  AssStmt : TAssignStmt;
-  CallStmt: TCallStmt;
+  Name     : string;
+  AssStmt  : TAssignStmt;
+  CallStmt : TCallStmt;
+  FldAssign: TFieldAssignStmt;
+  MethCall : TMethodCallStmt;
+  ObjExpr  : TExprNode;
+  VE       : TVarExpr;
+  FieldName: string;
 begin
-  Name := Consume.Value;  // eat identifier / Result
+  Name := Consume.Value;  // eat identifier / Result / Self
+
+  // Dot notation:  Self.Name := expr   or   obj.Method(args)
+  if Current.Kind = tkDot then
+  begin
+    Consume;  // eat the dot
+    FieldName := Expect(tkIdentifier).Value;
+
+    if Current.Kind = tkAssign then
+    begin
+      // Self.Name := expr  →  TFieldAssignStmt
+      Consume;
+      FldAssign           := TFieldAssignStmt.Create;
+      VE                  := TVarExpr.Create;
+      VE.Name             := LowerCase(Name);
+      FldAssign.Obj       := VE;
+      FldAssign.FieldName := FieldName;
+      FldAssign.Value     := ParseExpr;
+      Result              := FldAssign;
+    end
+    else if Current.Kind = tkLParen then
+    begin
+      // obj.Method(args)  →  TMethodCallStmt
+      Consume;
+      MethCall            := TMethodCallStmt.Create;
+      VE                  := TVarExpr.Create;
+      VE.Name             := LowerCase(Name);
+      MethCall.Obj        := VE;
+      MethCall.MethodName := FieldName;
+      ParseArgList(MethCall.Args);
+      Expect(tkRParen);
+      Result              := MethCall;
+    end
+    else
+    begin
+      // obj.Field used as statement — zero-arg method call
+      MethCall            := TMethodCallStmt.Create;
+      VE                  := TVarExpr.Create;
+      VE.Name             := LowerCase(Name);
+      MethCall.Obj        := VE;
+      MethCall.MethodName := FieldName;
+      Result              := MethCall;
+    end;
+    Exit;
+  end;
 
   if Current.Kind = tkAssign then
   begin
@@ -650,9 +727,11 @@ var
   Left  : TExprNode;
   Op    : string;
   BinOp : TBinOpExpr;
+  VE2   : TVarExpr;
 begin
   Left := ParseAddExpr;
-  while Current.Kind in [tkEqual, tkNotEqual, tkLess, tkLessEq, tkGreater, tkGreaterEq] do
+  while Current.Kind in [tkEqual, tkNotEqual, tkLess, tkLessEq,
+                         tkGreater, tkGreaterEq, tkIs_kw] do
   begin
     case Current.Kind of
       tkEqual     : Op := '=';
@@ -661,14 +740,29 @@ begin
       tkLessEq    : Op := '<=';
       tkGreater   : Op := '>';
       tkGreaterEq : Op := '>=';
+      tkIs_kw     : Op := 'is';
     else Op := '?';
     end;
     Consume;
-    BinOp       := TBinOpExpr.Create;
-    BinOp.Left  := Left;
-    BinOp.Op    := Op;
-    BinOp.Right := ParseAddExpr;
-    Left        := BinOp;
+    if Op = 'is' then
+    begin
+      // RHS of 'is' is a type name (identifier), not a full expression
+      BinOp       := TBinOpExpr.Create;
+      BinOp.Left  := Left;
+      BinOp.Op    := 'is';
+      VE2         := TVarExpr.Create;
+      VE2.Name    := Expect(tkIdentifier).Value;
+      BinOp.Right := VE2;
+      Left        := BinOp;
+    end
+    else
+    begin
+      BinOp       := TBinOpExpr.Create;
+      BinOp.Left  := Left;
+      BinOp.Op    := Op;
+      BinOp.Right := ParseAddExpr;
+      Left        := BinOp;
+    end;
   end;
   Result := Left;
 end;
@@ -745,14 +839,17 @@ end;
 
 function TParser.ParsePrimary: TExprNode;
 var
-  Tok  : TToken;
-  IL   : TIntLitExpr;
-  FL   : TFloatLitExpr;
-  SL   : TStrLitExpr;
-  BL   : TBoolLitExpr;
-  VE   : TVarExpr;
-  CE   : TCallExpr;
-  Sub  : TExprNode;
+  Tok     : TToken;
+  IL      : TIntLitExpr;
+  FL      : TFloatLitExpr;
+  SL      : TStrLitExpr;
+  BL      : TBoolLitExpr;
+  VE      : TVarExpr;
+  CE      : TCallExpr;
+  MCE     : TMethodCallExpr;
+  FE      : TFieldExpr;
+  FldName : string;
+  Sub     : TExprNode;
 begin
   Tok := Current;
 
@@ -804,7 +901,9 @@ begin
       Result := TNilLitExpr.Create;
     end;
 
-    tkIdentifier, tkResult:
+    // tkSelf, tkInherited, and other contextual keywords can appear in expressions
+    tkIdentifier, tkResult,
+    tkSelf, tkAs, tkIs_kw:
     begin
       Consume;
       if Current.Kind = tkLParen then
@@ -820,8 +919,34 @@ begin
       else
       begin
         VE      := TVarExpr.Create;
-        VE.Name := Tok.Value;
+        VE.Name := LowerCase(Tok.Value);  // 'Self' -> 'self' to match env key
         Result  := VE;
+      end;
+
+      // Dot-chain:  Self.Name  /  Self.Name.SubField  /  obj.Method(args)
+      while Current.Kind = tkDot do
+      begin
+        Consume;  // eat the dot
+        FldName := Expect(tkIdentifier).Value;
+        if Current.Kind = tkLParen then
+        begin
+          // obj.Method(args)  ->  TMethodCallExpr
+          Consume;
+          MCE            := TMethodCallExpr.Create;
+          MCE.Obj        := Result;
+          MCE.MethodName := FldName;
+          ParseArgList(MCE.Args);
+          Expect(tkRParen);
+          Result := MCE;
+        end
+        else
+        begin
+          // obj.Field  ->  TFieldExpr
+          FE           := TFieldExpr.Create;
+          FE.Obj       := Result;
+          FE.FieldName := FldName;
+          Result       := FE;
+        end;
       end;
     end;
 
@@ -976,8 +1101,14 @@ end;
 // ---------------------------------------------------------------------------
 function TParser.ParseClassDecl: TClassDecl;
 var
-  CD  : TClassDecl;
-  Vis : TVisibility;
+  CD       : TClassDecl;
+  Vis      : TVisibility;
+  MethD2   : TMethodDecl;
+  PropD2   : TPropertyDecl;
+  FldNames : TStringList;
+  FldType  : string;
+  FldD2    : TFieldDecl;
+  FI       : Integer;
 
   procedure SetVis;
   begin
@@ -1013,53 +1144,55 @@ begin
     if Current.Kind in [tkProcedure, tkFunction,
                         tkConstructor_kw, tkDestructor_kw] then
     begin
-      begin
-        var MethD : TMethodDecl;
-        MethD := ParseMethodDecl(CD.Name, False);
-        MethD.Visibility := Vis;
-        CD.Methods.Add(MethD);
-      end
+      MethD2 := ParseMethodDecl(CD.Name, False);
+      MethD2.Visibility := Vis;
+      CD.Methods.Add(MethD2);
     end
     else if Current.Kind = tkProperty_kw then
     begin
-      // property Name : Type read FField write FField;
-      begin
-        var PropD : TPropertyDecl;
-        PropD := TPropertyDecl.Create;
-        PropD.Visibility := Vis;
-        Consume; // eat 'property'
-        PropD.Name     := Expect(tkIdentifier).Value;
-        Expect(tkColon);
-        if Current.Kind in [tkInteger_kw, tkString_kw,
-                            tkBoolean_kw, tkReal_kw] then
-          PropD.TypeName := LowerCase(Consume.Value)
-        else
-          PropD.TypeName := Expect(tkIdentifier).Value;
-        if Match(tkIdentifier) then  // 'read'
-          PropD.ReadName := Expect(tkIdentifier).Value;
-        if Match(tkIdentifier) then  // 'write'
-          PropD.WriteName := Expect(tkIdentifier).Value;
-        Match(tkSemicolon);
-        CD.Properties.Add(PropD);
-      end
+      PropD2 := TPropertyDecl.Create;
+      PropD2.Visibility := Vis;
+      Consume;
+      PropD2.Name     := Expect(tkIdentifier).Value;
+      Expect(tkColon);
+      if Current.Kind in [tkInteger_kw, tkString_kw,
+                          tkBoolean_kw, tkReal_kw] then
+        PropD2.TypeName := LowerCase(Consume.Value)
+      else
+        PropD2.TypeName := Expect(tkIdentifier).Value;
+      if Match(tkIdentifier) then
+        PropD2.ReadName := Expect(tkIdentifier).Value;
+      if Match(tkIdentifier) then
+        PropD2.WriteName := Expect(tkIdentifier).Value;
+      Match(tkSemicolon);
+      CD.Properties.Add(PropD2);
     end
     else if Current.Kind = tkIdentifier then
     begin
-      // Field declaration:  Name : TypeName;
-      begin
-        var FldD : TFieldDecl;
-        FldD := TFieldDecl.Create;
-        FldD.Visibility := Vis;
-        FldD.Name     := Consume.Value;
+      // Field declaration:  Name1, Name2 : TypeName;
+      FldNames := TStringList.Create;
+      try
+        FldNames.Add(Consume.Value);
+        while Match(tkComma) do
+          FldNames.Add(Expect(tkIdentifier).Value);
         Expect(tkColon);
         if Current.Kind in [tkInteger_kw, tkString_kw,
                             tkBoolean_kw, tkReal_kw] then
-          FldD.TypeName := LowerCase(Consume.Value)
+          FldType := LowerCase(Consume.Value)
         else
-          FldD.TypeName := Expect(tkIdentifier).Value;
+          FldType := Expect(tkIdentifier).Value;
         Match(tkSemicolon);
-        CD.Fields.Add(FldD);
-      end
+        for FI := 0 to FldNames.Count - 1 do
+        begin
+          FldD2 := TFieldDecl.Create;
+          FldD2.Visibility := Vis;
+          FldD2.Name     := FldNames[FI];
+          FldD2.TypeName := FldType;
+          CD.Fields.Add(FldD2);
+        end;
+      finally
+        FldNames.Free;
+      end;
     end
     else
       Consume; // skip unknown tokens gracefully
