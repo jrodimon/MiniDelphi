@@ -1522,39 +1522,44 @@ Add('Unit Converter', 'Utilities', 'Convert lengths, weights and volumes',
 
 // ---------------------------------------------------------------------------
 Add('Countdown Timer', 'Utilities', 'A simple countdown using a loop',
-'// ============================================================' + #13#10 +
-'// COUNTDOWN TIMER' + #13#10 +
-'// Counts down from N to zero, showing each second.' + #13#10 +
-'// Teaches: for downto, write, string formatting' + #13#10 +
-'// ============================================================' + #13#10 +
-'' + #13#10 +
-'var' + #13#10 +
-'  seconds : Integer;' + #13#10 +
-'  i, mins, secs : Integer;' + #13#10 +
-'' + #13#10 +
-'begin' + #13#10 +
-'  seconds := StrToInt(InputBox(''Count down from (seconds):'', ''Countdown'', ''10''));' + #13#10 +
-'' + #13#10 +
-'  writeln(''Starting countdown from '', seconds, '' seconds...'');' + #13#10 +
-'  writeln(''---'');' + #13#10 +
-'' + #13#10 +
-'  for i := seconds downto 0 do' + #13#10 +
-'  begin' + #13#10 +
-'    // Convert total seconds into minutes and seconds' + #13#10 +
-'    mins := i div 60;' + #13#10 +
-'    secs := i mod 60;' + #13#10 +
-'' + #13#10 +
-'    // Format as MM:SS (pad single digits with a leading zero)' + #13#10 +
-'    if secs < 10 then' + #13#10 +
-'      writeln(mins, '':0'', secs)' + #13#10 +
-'    else' + #13#10 +
-'      writeln(mins, '':'', secs);' + #13#10 +
-'  end;' + #13#10 +
-'' + #13#10 +
-'  writeln(''---'');' + #13#10 +
-'  ShowMessage(''Time is up!'');' + #13#10 +
-'  writeln(''DONE!'');' + #13#10 +
-'end.');
+  '// ============================================================' + #13#10 +
+  '// COUNTDOWN TIMER' + #13#10 +
+  '// Counts down from N to zero, showing each second.' + #13#10 +
+  '// Teaches: for downto, write, string formatting, Sleep' + #13#10 +
+  '// ============================================================' + #13#10 +
+  '' + #13#10 +
+  'var' + #13#10 +
+  '  seconds : Integer;' + #13#10 +
+  '  i, mins, secs : Integer;' + #13#10 +
+  '' + #13#10 +
+  'begin' + #13#10 +
+  '  seconds := StrToInt(InputBox(''Count down from (seconds):'', ''Countdown'', ''10''));' + #13#10 +
+  '' + #13#10 +
+  '  writeln(''Starting countdown from '', seconds, '' seconds...'');' + #13#10 +
+  '  writeln(''---'');' + #13#10 +
+  '' + #13#10 +
+  '  for i := seconds downto 0 do' + #13#10 +
+  '  begin' + #13#10 +
+  '    // Convert total seconds into minutes and seconds' + #13#10 +
+  '    mins := i div 60;' + #13#10 +
+  '    secs := i mod 60;' + #13#10 +
+  '' + #13#10 +
+  '    // Format as MM:SS (pad single digits with a leading zero)' + #13#10 +
+  '    if secs < 10 then' + #13#10 +
+  '      writeln(mins, '':0'', secs)' + #13#10 +
+  '    else' + #13#10 +
+  '      writeln(mins, '':'', secs);' + #13#10 +
+  '' + #13#10 +
+  '    // Pause execution for 1 second (1000 milliseconds)' + #13#10 +
+  '    if i > 0 then' + #13#10 +
+  '      Sleep(1000);' + #13#10 +
+  '  end;' + #13#10 +
+  '' + #13#10 +
+  '  writeln(''---'');' + #13#10 +
+  '  ShowMessage(''Time is up!'');' + #13#10 +
+  '  writeln(''DONE!'');' + #13#10 +
+  'end.');
+
 
 // ---------------------------------------------------------------------------
 Add('Statistics Calculator', 'Utilities', 'Enter numbers, get mean, min, max, range',

@@ -148,7 +148,9 @@
         <DCCReference Include="UUnitLoader.pas"/>
         <DCCReference Include="USQLite.pas"/>
         <DCCReference Include="UObjectRuntime.pas"/>
+        <DCCReference Include="UValidator.pas"/>
         <DCCReference Include="UGraphics.pas"/>
+        <DCCReference Include="UAboutDialog.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

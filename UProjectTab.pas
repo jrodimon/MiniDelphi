@@ -1,4 +1,4 @@
-﻿unit UProjectTab;
+unit UProjectTab;
 
 // =============================================================================
 // Copyright (c) 2026 Nomidor Software, LLC.
@@ -15,10 +15,11 @@
 //  ────────
 //  • New / Open / Save / Save As for .mdp source files
 //  • Project files (.mdproj) group multiple .mdp files together
-//  • 30 example projects browsable in a categorised tree
-//  • Full source editor with Ctrl+S, Ctrl+N, Ctrl+O shortcuts
+//  • Example project tree (single-file and multi-file)
+//  • Full source editor with Ctrl+S, Ctrl+N, Ctrl+O, F5 shortcuts
 //  • Recent files list (last 10)
-//  • Run button executes current source through the interpreter
+//  • Run / Stop buttons (Stop interrupts a running program)
+//  • Insert button + right-click menu for code snippets
 //
 //  File formats
 //  ────────────
@@ -61,6 +62,22 @@ type
   end;
 
   // ---------------------------------------------------------------------------
+  //  Snippet record — used by the Insert button and editor popup
+  //
+  //    Name         menu caption shown to the user
+  //    Body         text inserted at the caret (use #13#10 for newlines)
+  //    CaretFromEnd how many characters back from the end of the inserted
+  //                 text the caret should land on (so the user can start
+  //                 typing in a sensible place, e.g. inside the condition).
+  //                 0 = caret at end of insertion.
+  // ---------------------------------------------------------------------------
+  TSnippet = record
+    Name         : string;
+    Body         : string;
+    CaretFromEnd : Integer;
+  end;
+
+  // ---------------------------------------------------------------------------
   //  The Project tab panel — drop onto a TTabSheet
   // ---------------------------------------------------------------------------
   TProjectTab = class
@@ -85,10 +102,11 @@ type
     FBtnSave        : TButton;
     FBtnSaveAs      : TButton;
     FBtnRun         : TButton;
+    FBtnStop        : TButton;
+    FBtnInsert      : TButton;
     FBtnNewProj     : TButton;
     FBtnOpenProj    : TButton;
-    //FBtnNewLib      : TButton;
-    FBtnStop        : TButton;
+    FBtnNewLib      : TButton;
     FLabelFile      : TLabel;
 
     // Left tree (examples + recent)
@@ -109,12 +127,16 @@ type
     FNodeRecent     : TTreeNode;
     FNodeExamples   : TTreeNode;
 
-    //nil when not running
-    FInterp : TInterpreter;
+    // Snippet popup menu (shared by toolbar button and editor right-click)
+    FSnippetMenu    : TPopupMenu;
+
+    // nil when not running
+    FInterp         : TInterpreter;
 
     // ── Helpers ──────────────────────────────────────────────────────────────
     procedure BuildUI;
     procedure BuildTree;
+    procedure BuildSnippetMenu;
     procedure RefreshRecentNode;
     procedure UpdateTitleBar;
     procedure SetModified(Val: Boolean);
@@ -123,20 +145,23 @@ type
     procedure LoadFile(const Path: string);
     procedure SaveFile(const Path: string);
     procedure RunCurrentSource;
+    procedure InsertSnippet(const Body: string; CaretFromEnd: Integer);
 
     // Event handlers
-    procedure OnNew       (Sender: TObject);
-    procedure OnOpen      (Sender: TObject);
-    procedure OnSave      (Sender: TObject);
-    procedure OnSaveAs    (Sender: TObject);
-    procedure OnRun       (Sender: TObject);
-    procedure OnStop      (Sender: TObject);
-    procedure OnNewProject(Sender: TObject);
-    procedure OnOpenProject(Sender: TObject);
-    //procedure OnNewLibrary (Sender: TObject);
+    procedure OnNew         (Sender: TObject);
+    procedure OnOpen        (Sender: TObject);
+    procedure OnSave        (Sender: TObject);
+    procedure OnSaveAs      (Sender: TObject);
+    procedure OnRun         (Sender: TObject);
+    procedure OnStop        (Sender: TObject);
+    procedure OnInsertClick (Sender: TObject);
+    procedure OnSnippetClick(Sender: TObject);
+    procedure OnNewProject  (Sender: TObject);
+    procedure OnOpenProject (Sender: TObject);
+    procedure OnNewLibrary  (Sender: TObject);
     procedure OnTreeDblClick(Sender: TObject);
     procedure OnEditorChange(Sender: TObject);
-    procedure OnEditorKey (Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure OnEditorKey   (Sender: TObject; var Key: Word; Shift: TShiftState);
 
   public
     constructor Create(AParent: TWinControl);
@@ -166,6 +191,132 @@ const
     '  // Write your code here' + #13#10 +
     '  writeln(''Hello, MiniDelphi!'');' + #13#10 +
     'end.';
+
+// ---------------------------------------------------------------------------
+//  Snippet library — used by Insert button and editor right-click menu
+//
+//  CaretFromEnd counts back from the END of the inserted text.
+//  Example: 'if  then'#13#10'  ;' has length 13. To land the caret right
+//  after "if " (position 3), we want 13 - 3 = 10... but we typically want
+//  a few chars earlier so the user is sitting inside the empty condition
+//  space. Tune CaretFromEnd by counting back from the literal end of Body.
+// ---------------------------------------------------------------------------
+const
+  SNIPPETS : array[0..14] of TSnippet = (
+
+    // ── Control flow ────────────────────────────────────────────────────────
+    (Name         : 'if ... then';
+     Body         : '// Run inner statement only when condition is true' + #13#10 +
+                    'if  then' + #13#10 +
+                    '  ;';
+     CaretFromEnd : 11),
+
+    (Name         : 'if ... then ... else';
+     Body         : '// Choose between two branches' + #13#10 +
+                    'if  then' + #13#10 +
+                    '  ' + #13#10 +
+                    'else' + #13#10 +
+                    '  ;';
+     CaretFromEnd : 20),
+
+    (Name         : 'while ... do';
+     Body         : '// Repeat while condition is true (may run 0 times)' + #13#10 +
+                    'while  do' + #13#10 +
+                    'begin' + #13#10 +
+                    '  ' + #13#10 +
+                    'end;';
+     CaretFromEnd : 19),
+
+    (Name         : 'repeat ... until';
+     Body         : '// Repeat until condition is true (always runs at least once)' + #13#10 +
+                    'repeat' + #13#10 +
+                    '  ' + #13#10 +
+                    'until ;';
+     CaretFromEnd : 1),
+
+    (Name         : 'for ... to ... do';
+     Body         : '// Loop counting up from start to end' + #13#10 +
+                    'for i := 1 to 10 do' + #13#10 +
+                    'begin' + #13#10 +
+                    '  ' + #13#10 +
+                    'end;';
+     CaretFromEnd : 9),
+
+    (Name         : 'for ... downto ... do';
+     Body         : '// Loop counting down from start to end' + #13#10 +
+                    'for i := 10 downto 1 do' + #13#10 +
+                    'begin' + #13#10 +
+                    '  ' + #13#10 +
+                    'end;';
+     CaretFromEnd : 9),
+
+    (Name         : 'case ... of (integer)';
+     Body         : '// Switch on an integer value' + #13#10 +
+                    'case  of' + #13#10 +
+                    '  1 : ;' + #13#10 +
+                    '  2 : ;' + #13#10 +
+                    'else' + #13#10 +
+                    '  ;' + #13#10 +
+                    'end;';
+     CaretFromEnd : 39),
+
+    (Name         : 'caseof ... of (string)';
+     Body         : '// Switch on a string value (MiniDelphi extension)' + #13#10 +
+                    'caseof  of' + #13#10 +
+                    '  ''a'' : ;' + #13#10 +
+                    '  ''b'' : ;' + #13#10 +
+                    'else' + #13#10 +
+                    '  ;' + #13#10 +
+                    'end;';
+     CaretFromEnd : 47),
+
+    // ── I/O ─────────────────────────────────────────────────────────────────
+    (Name         : 'writeln(...)';
+     Body         : 'writeln('''');';
+     CaretFromEnd : 3),
+
+    (Name         : 'ShowMessage(...)';
+     Body         : 'ShowMessage('''');';
+     CaretFromEnd : 3),
+
+    (Name         : 'InputBox(prompt, title, default)';
+     Body         : ' := InputBox(''Prompt:'', ''Title'', '''');';
+     CaretFromEnd : 36),
+
+    (Name         : 'if Confirm(...) then ...';
+     Body         : 'if Confirm(''Are you sure?'') then' + #13#10 +
+                    '  ;';
+     CaretFromEnd : 1),
+
+    // ── Routines ────────────────────────────────────────────────────────────
+    (Name         : 'procedure ... begin ... end;';
+     Body         : 'procedure MyProc;' + #13#10 +
+                    'begin' + #13#10 +
+                    '  ' + #13#10 +
+                    'end;';
+     CaretFromEnd : 6),
+
+    (Name         : 'function ... begin Result := ... end;';
+     Body         : 'function MyFunc: Integer;' + #13#10 +
+                    'begin' + #13#10 +
+                    '  Result := 0;' + #13#10 +
+                    'end;';
+     CaretFromEnd : 7),
+
+    // ── OOP ─────────────────────────────────────────────────────────────────
+    (Name         : 'class skeleton (type + impl)';
+     Body         : 'type' + #13#10 +
+                    '  TMyClass = class' + #13#10 +
+                    '    Name : String;' + #13#10 +
+                    '    procedure SayHello;' + #13#10 +
+                    '  end;' + #13#10 +
+                    '' + #13#10 +
+                    'procedure TMyClass.SayHello;' + #13#10 +
+                    'begin' + #13#10 +
+                    '  writeln(''Hello from '', Self.Name);' + #13#10 +
+                    'end;';
+     CaretFromEnd : 0)
+  );
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  RECENT FILES
@@ -249,8 +400,10 @@ begin
   FProjectFile := '';
   FProjectName := '';
   FModified    := False;
+  FInterp      := nil;
 
   BuildUI;
+  BuildSnippetMenu;
   BuildTree;
   UpdateTitleBar;
 
@@ -304,6 +457,7 @@ var X : Integer;
 begin
   if FParent = nil then
     raise Exception.Create('TProjectTab requires a non-nil parent');
+
   // Outer panel
   FOuterPanel            := TPanel.Create(FParent);
   FOuterPanel.Parent     := FParent;
@@ -320,15 +474,16 @@ begin
   FToolBar.Color         := $00303030;
 
   X := PAD;
-  Btn(FBtnNew,      FToolBar, 'New',       X, OnNew,        'New file  (Ctrl+N)');
-  Btn(FBtnOpen,     FToolBar, 'Open',      X, OnOpen,       'Open .mdp file  (Ctrl+O)');
-  Btn(FBtnSave,     FToolBar, 'Save',      X, OnSave,       'Save  (Ctrl+S)');
-  Btn(FBtnSaveAs,   FToolBar, 'Save As',   X, OnSaveAs,     'Save with new name');
-  Btn(FBtnRun,      FToolBar, 'Run',       X, OnRun,        'Run this program  (F5)');
-  Btn(FBtnStop,     FToolBar, 'Stop',      X, OnStop,       'Stop running program');
+  Btn(FBtnNew,      FToolBar, 'New',       X, OnNew,         'New file  (Ctrl+N)');
+  Btn(FBtnOpen,     FToolBar, 'Open',      X, OnOpen,        'Open .mdp file  (Ctrl+O)');
+  Btn(FBtnSave,     FToolBar, 'Save',      X, OnSave,        'Save  (Ctrl+S)');
+  Btn(FBtnSaveAs,   FToolBar, 'Save As',   X, OnSaveAs,      'Save with new name');
+  Btn(FBtnRun,      FToolBar, 'Run',       X, OnRun,         'Run this program  (F5)');
+  Btn(FBtnStop,     FToolBar, 'Stop',      X, OnStop,        'Stop running program');
+  Btn(FBtnInsert,   FToolBar, 'Insert',    X, OnInsertClick, 'Insert code snippet (or right-click in editor)');
   Inc(X, PAD * 2);
-  Btn(FBtnNewProj,  FToolBar, 'New Proj',  X, OnNewProject, 'Create a new project');
-  Btn(FBtnOpenProj, FToolBar, 'Open Proj', X, OnOpenProject,'Open an existing project');
+  Btn(FBtnNewProj,  FToolBar, 'New Proj',  X, OnNewProject,  'Create a new project');
+  Btn(FBtnOpenProj, FToolBar, 'Open Proj', X, OnOpenProject, 'Open an existing project');
 
   // File label
   FLabelFile              := TLabel.Create(FToolBar);
@@ -382,7 +537,7 @@ begin
   FEditorLabel.Parent     := FRightPanel;
   FEditorLabel.Align      := alTop;
   FEditorLabel.Height     := 20;
-  FEditorLabel.Caption    := '  ✏  Source Editor  —  Ctrl+S to save  |  F5 to run';
+  FEditorLabel.Caption    := '  Source Editor  —  Ctrl+S to save  |  F5 to run  |  right-click for snippets';
   FEditorLabel.Font.Color := $0056D364;
   FEditorLabel.Font.Style := [fsBold];
 
@@ -408,7 +563,7 @@ begin
   FOutputLabel.Parent     := FRightPanel;
   FOutputLabel.Align      := alTop;
   FOutputLabel.Height     := 20;
-  FOutputLabel.Caption    := '  ▶  Output';
+  FOutputLabel.Caption    := '  Output';
   FOutputLabel.Font.Color := $0056D364;
 
   FOutput                 := TMemo.Create(FRightPanel);
@@ -421,6 +576,79 @@ begin
   FOutput.Font.Size       := 9;
   FOutput.Color           := $00121212;
   FOutput.Font.Color      := GREEN;
+end;
+
+// ---------------------------------------------------------------------------
+//  Build the popup menu used by both the Insert button and the editor
+//  right-click. Items use Tag to hold the SNIPPETS array index.
+// ---------------------------------------------------------------------------
+procedure TProjectTab.BuildSnippetMenu;
+var
+  I        : Integer;
+  Item     : TMenuItem;
+  Sep      : TMenuItem;
+  LastWasCtrl : Boolean;
+begin
+  FSnippetMenu := TPopupMenu.Create(FOuterPanel);
+
+  // Hand-built grouping: rough separators between control flow / I/O /
+  // routines / OOP. Positions matched to the SNIPPETS array layout above.
+  for I := 0 to High(SNIPPETS) do
+  begin
+    // Insert separator before I/O group (index 8) and routines (index 12)
+    // and OOP (index 14)
+    if (I = 8) or (I = 12) or (I = 14) then
+    begin
+      Sep := TMenuItem.Create(FSnippetMenu);
+      Sep.Caption := '-';
+      FSnippetMenu.Items.Add(Sep);
+    end;
+
+    Item         := TMenuItem.Create(FSnippetMenu);
+    Item.Caption := SNIPPETS[I].Name;
+    Item.Tag     := I;
+    Item.OnClick := OnSnippetClick;
+    FSnippetMenu.Items.Add(Item);
+  end;
+
+  // Wire the same menu up to the editor for right-click access
+  FEditor.PopupMenu := FSnippetMenu;
+end;
+
+// ---------------------------------------------------------------------------
+//  Insert a snippet at the current caret position, then reposition the
+//  caret CaretFromEnd characters back from the end of the inserted text.
+// ---------------------------------------------------------------------------
+procedure TProjectTab.InsertSnippet(const Body: string; CaretFromEnd: Integer);
+var
+  StartPos : Integer;
+begin
+  StartPos := FEditor.SelStart;
+  // SelText replaces any current selection, or inserts at caret if none
+  FEditor.SelText  := Body;
+  // Position caret inside the template where the user is likely to type next
+  FEditor.SelStart := StartPos + Length(Body) - CaretFromEnd;
+  FEditor.SelLength := 0;
+  SetModified(True);
+  FEditor.SetFocus;
+end;
+
+procedure TProjectTab.OnSnippetClick(Sender: TObject);
+var
+  Idx : Integer;
+begin
+  Idx := (Sender as TMenuItem).Tag;
+  if (Idx >= 0) and (Idx <= High(SNIPPETS)) then
+    InsertSnippet(SNIPPETS[Idx].Body, SNIPPETS[Idx].CaretFromEnd);
+end;
+
+procedure TProjectTab.OnInsertClick(Sender: TObject);
+var
+  P : TPoint;
+begin
+  // Drop the menu just below the Insert button
+  P := FBtnInsert.ClientToScreen(Point(0, FBtnInsert.Height));
+  FSnippetMenu.Popup(P.X, P.Y);
 end;
 
 // ---------------------------------------------------------------------------
@@ -438,19 +666,19 @@ begin
   FTree.Items.Clear;
 
   // Recent files node
-  FNodeRecent := FTree.Items.Add(nil, '📂  Recent Files');
+  FNodeRecent := FTree.Items.Add(nil, 'Recent Files');
   FNodeRecent.Data := Pointer(-1);
   RefreshRecentNode;
 
   // Examples by category
-  FNodeExamples := FTree.Items.Add(nil, '📚  Example Projects (30)');
+  FNodeExamples := FTree.Items.Add(nil, 'Example Projects');
   FNodeExamples.Data := Pointer(-2);
 
   Cats := FExamples.Categories;
   try
     for Cat in Cats do
     begin
-      CatNode      := FTree.Items.AddChild(FNodeExamples, '  📁  ' + Cat);
+      CatNode      := FTree.Items.AddChild(FNodeExamples, '  ' + Cat);
       CatNode.Data := Pointer(-3);
 
       for I := 0 to FExamples.Count - 1 do
@@ -458,7 +686,7 @@ begin
         Ex := FExamples.Items(I);
         if Ex.Category = Cat then
         begin
-          ExNode      := FTree.Items.AddChild(CatNode, '    📄  ' + Ex.Name);
+          ExNode      := FTree.Items.AddChild(CatNode, '    ' + Ex.Name);
           ExNode.Data := Pointer(I);   // index into FExamples
         end;
       end;
@@ -491,7 +719,7 @@ begin
     for I := 0 to FRecent.Files.Count - 1 do
     begin
       Name := ExtractFileName(FRecent.Files[I]);
-      Node := FTree.Items.AddChild(FNodeRecent, '  📄  ' + Name);
+      Node := FTree.Items.AddChild(FNodeRecent, '  ' + Name);
       Node.Data := Pointer(-(100 + I));   // encoded as -(100+recentIndex)
     end;
   end;
@@ -622,6 +850,7 @@ begin
     end;
   end;
 end;
+
 // ---------------------------------------------------------------------------
 //  EVENT HANDLERS
 // ---------------------------------------------------------------------------
@@ -913,7 +1142,6 @@ begin
   end;
 end;
 
-{
 procedure TProjectTab.OnNewLibrary(Sender: TObject);
 var
   LibName  : string;
@@ -980,6 +1208,5 @@ function IfThen(B: Boolean; const T, F: string): string;
 begin
   if B then Result := T else Result := F;
 end;
-}
 
 end.

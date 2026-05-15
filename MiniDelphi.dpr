@@ -1,4 +1,4 @@
-program MiniDelphi;
+﻿program MiniDelphi;
 
 // =============================================================================
 // Copyright (c) 2026 Nomidor Software, LLC.
@@ -22,19 +22,20 @@ program MiniDelphi;
 
 uses
   Vcl.Forms,
-  UMainForm    in 'UMainForm.pas'    {FormMain},
-  ULexer       in 'ULexer.pas',
-  UAST         in 'UAST.pas',
-  UParser      in 'UParser.pas',
+  UMainForm in 'UMainForm.pas' {FormMain},
+  ULexer in 'ULexer.pas',
+  UAST in 'UAST.pas',
+  UParser in 'UParser.pas',
   UInterpreter in 'UInterpreter.pas',
-  ULearnTab       in 'ULearnTab.pas',
-  UProjectTab     in 'UProjectTab.pas',
+  ULearnTab in 'ULearnTab.pas',
+  UProjectTab in 'UProjectTab.pas',
   UExampleProjects in 'UExampleProjects.pas',
-  UUnitLoader      in 'UUnitLoader.pas',
-  USQLite          in 'USQLite.pas',
-  UObjectRuntime   in 'UObjectRuntime.pas',
-  UValidator       in 'UValidator.pas',
-  UGraphics        in 'UGraphics.pas';
+  UUnitLoader in 'UUnitLoader.pas',
+  USQLite in 'USQLite.pas',
+  UObjectRuntime in 'UObjectRuntime.pas',
+  UValidator in 'UValidator.pas',
+  UGraphics in 'UGraphics.pas',
+  UAboutDialog in 'UAboutDialog.pas';
 
 {$R *.res}
 

@@ -15,9 +15,11 @@
 // =============================================================================
 //  UMainForm.pas  -  VCL front-end for the MiniDelphi Toy Compiler
 //
-//  Two tabs:
-//    [Compiler]   -- source editor, lexer, parser, runner
-//    [Calculator] -- type any expression, press Enter or =, see the answer
+//  Four tabs:
+//    [Compiler]     -- source editor, lexer, parser, runner, snippet menu
+//    [Calculator]   -- type any expression, press Enter or =, see the answer
+//    [Learn Delphi] -- interactive lessons
+//    [Projects]     -- multi-file project IDE
 // =============================================================================
 
 interface
@@ -28,14 +30,31 @@ uses
   System.Math,
   Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.ExtCtrls,
   Vcl.Menus, Vcl.ComCtrls, Vcl.Buttons, Vcl.Graphics,
-  ULexer, UParser, UAST, UInterpreter, UValidator, ULearnTab,
-  UProjectTab, UExampleProjects;
+  ULexer, UParser, UAST, UInterpreter, UValidator,
+    ULearnTab,
+  UProjectTab, UExampleProjects,UAboutDialog;
 
 type
+  // ---------------------------------------------------------------------------
+  //  Snippet record — used by the Insert button and editor right-click menu
+  //
+  //    Name         menu caption shown to the user
+  //    Body         text inserted at the caret (use #13#10 for newlines)
+  //    CaretFromEnd how many chars back from end of insertion the caret
+  //                 should land on (so the user can start typing in a
+  //                 sensible place, e.g. inside an empty condition).
+  //                 0 = caret at the very end of the insertion.
+  // ---------------------------------------------------------------------------
+  TSnippet = record
+    Name         : string;
+    Body         : string;
+    CaretFromEnd : Integer;
+  end;
+
   TFormMain = class(TForm)
   private
     // ------------------------------------------------------------------
-    //  Top-level page control  (two tabs)
+    //  Top-level page control  (four tabs)
     // ------------------------------------------------------------------
     FPages          : TPageControl;
     FTabCompiler    : TTabSheet;
@@ -54,6 +73,7 @@ type
     FBtnRun         : TButton;
     FBtnClear       : TButton;
     FBtnExample     : TButton;
+    FBtnInsert      : TButton;
     FBtnAbout       : TButton;
     FStatusLabel    : TLabel;
 
@@ -75,6 +95,7 @@ type
     FMemoTok        : TMemo;
 
     FExampleMenu    : TPopupMenu;
+    FSnippetMenu    : TPopupMenu;   // shared by Insert btn and FMemoSrc right-click
 
     // ------------------------------------------------------------------
     //  CALCULATOR TAB
@@ -93,6 +114,8 @@ type
     procedure BuildCompilerTab;
     procedure BuildCalcTab;
     procedure BuildExamples;
+    procedure BuildSnippetMenu;
+    procedure InsertSnippet(const Body: string; CaretFromEnd: Integer);
     procedure SetStatus(const Msg: string; IsError: Boolean = False);
     procedure HighlightErrorLine(Line: Integer);
     procedure ClearHighlight;
@@ -100,17 +123,22 @@ type
     procedure ShowTokens(Tokens: TList<TToken>);
     procedure EvalExpression;
 
+    procedure BuildMainMenu;
+
     procedure OnLex            (Sender: TObject);
     procedure OnParse          (Sender: TObject);
     procedure OnRun            (Sender: TObject);
     procedure OnClear          (Sender: TObject);
     procedure OnExample        (Sender: TObject);
     procedure OnExampleClick   (Sender: TObject);
+    procedure OnInsertClick    (Sender: TObject);
+    procedure OnSnippetClick   (Sender: TObject);
     procedure OnAbout          (Sender: TObject);
     procedure OnCalcBtn        (Sender: TObject);
     procedure OnCalcKey        (Sender: TObject; var Key: Char);
     procedure OnCalcSpecialKey (Sender: TObject; var Key: Word;
                                 Shift: TShiftState);
+    procedure OnFileExit(Sender: TObject);
   public
     constructor Create(AOwner: TComponent); override;
   end;
@@ -156,7 +184,7 @@ const
     '  i : Integer;'                                                 + #13#10 +
     ''                                                               + #13#10 +
     'begin'                                                          + #13#10 +
-    '  for i := 1 to 30 do'                                         + #13#10 +
+    '  for i := 1 to 30 do'                                          + #13#10 +
     '  begin'                                                        + #13#10 +
     '    if (i mod 15 = 0) then'                                     + #13#10 +
     '      writeln(''FizzBuzz'')'                                    + #13#10 +
@@ -180,7 +208,7 @@ const
     '  b := 1;'                                                      + #13#10 +
     '  writeln(a);'                                                  + #13#10 +
     '  writeln(b);'                                                  + #13#10 +
-    '  for i := 1 to 15 do'                                         + #13#10 +
+    '  for i := 1 to 15 do'                                          + #13#10 +
     '  begin'                                                        + #13#10 +
     '    c := a + b;'                                                + #13#10 +
     '    writeln(c);'                                                + #13#10 +
@@ -203,7 +231,7 @@ const
     '  i : Integer;'                                                 + #13#10 +
     ''                                                               + #13#10 +
     'begin'                                                          + #13#10 +
-    '  for i := 0 to 12 do'                                         + #13#10 +
+    '  for i := 0 to 12 do'                                          + #13#10 +
     '    writeln(i, ''! = '', Fact(i));'                             + #13#10 +
     'end.',
 
@@ -213,7 +241,7 @@ const
     'var'                                                            + #13#10 +
     '  i : Integer;'                                                 + #13#10 +
     'begin'                                                          + #13#10 +
-    '  if n < 2 then begin Result := false; exit; end;'             + #13#10 +
+    '  if n < 2 then begin Result := false; exit; end;'              + #13#10 +
     '  i := 2;'                                                      + #13#10 +
     '  Result := true;'                                              + #13#10 +
     '  while i * i <= n do'                                          + #13#10 +
@@ -233,7 +261,7 @@ const
     'begin'                                                          + #13#10 +
     '  writeln(''Primes up to 100:'');'                              + #13#10 +
     '  count := 0;'                                                  + #13#10 +
-    '  for n := 2 to 100 do'                                        + #13#10 +
+    '  for n := 2 to 100 do'                                         + #13#10 +
     '    if IsPrime(n) then'                                         + #13#10 +
     '    begin'                                                      + #13#10 +
     '      write(n);'                                                + #13#10 +
@@ -256,7 +284,7 @@ const
     '  writeln(''Length    : '', length(s));'                        + #13#10 +
     '  writeln(''Upper     : '', uppercase(s));'                     + #13#10 +
     '  writeln(''Lower     : '', lowercase(s));'                     + #13#10 +
-    '  t := copy(s, 1, 5);'                                         + #13#10 +
+    '  t := copy(s, 1, 5);'                                          + #13#10 +
     '  writeln(''First 5   : '', t);'                                + #13#10 +
     '  writeln(''Pos Mini  : '', pos(''Mini'', s));'                 + #13#10 +
     '  writeln(''Concat    : '', s + '' (and more!)'');'             + #13#10 +
@@ -283,18 +311,18 @@ const
     ''                                                               + #13#10 +
     '  writeln(''--- Days of week ---'');'                           + #13#10 +
     '  var day : Integer;'                                           + #13#10 +
-    '  for day := 1 to 7 do'                                        + #13#10 +
+    '  for day := 1 to 7 do'                                         + #13#10 +
     '  begin'                                                        + #13#10 +
     '    write(day, '' = '');'                                       + #13#10 +
-    '    case day of'                                                 + #13#10 +
-    '      1 : writeln(''Monday'');'                                  + #13#10 +
-    '      2 : writeln(''Tuesday'');'                                 + #13#10 +
-    '      3 : writeln(''Wednesday'');'                               + #13#10 +
-    '      4 : writeln(''Thursday'');'                                + #13#10 +
-    '      5 : writeln(''Friday'');'                                  + #13#10 +
-    '      6, 7 : writeln(''Weekend!'');'                             + #13#10 +
-    '    end;'                                                        + #13#10 +
-    '  end;'                                                          + #13#10 +
+    '    case day of'                                                + #13#10 +
+    '      1 : writeln(''Monday'');'                                 + #13#10 +
+    '      2 : writeln(''Tuesday'');'                                + #13#10 +
+    '      3 : writeln(''Wednesday'');'                              + #13#10 +
+    '      4 : writeln(''Thursday'');'                               + #13#10 +
+    '      5 : writeln(''Friday'');'                                 + #13#10 +
+    '      6, 7 : writeln(''Weekend!'');'                            + #13#10 +
+    '    end;'                                                       + #13#10 +
+    '  end;'                                                         + #13#10 +
     'end.',
 
     // 7 -- caseof (string switch -- our MiniDelphi invention)
@@ -324,11 +352,137 @@ const
     'end.'
   );
 
+// ---------------------------------------------------------------------------
+//  Snippet library — used by Insert button and FMemoSrc right-click menu
+//
+//  CaretFromEnd counts back from the END of the inserted text. Tune by
+//  trial and error if the cursor lands in an awkward spot.
+// ---------------------------------------------------------------------------
+const
+  SNIPPETS : array[0..14] of TSnippet = (
+
+    // ── Control flow ────────────────────────────────────────────────────────
+    (Name         : 'if ... then';
+     Body         : '// Run inner statement only when condition is true' + #13#10 +
+                    'if  then' + #13#10 +
+                    '  ;';
+     CaretFromEnd : 11),
+
+    (Name         : 'if ... then ... else';
+     Body         : '// Choose between two branches' + #13#10 +
+                    'if  then' + #13#10 +
+                    '  ' + #13#10 +
+                    'else' + #13#10 +
+                    '  ;';
+     CaretFromEnd : 20),
+
+    (Name         : 'while ... do';
+     Body         : '// Repeat while condition is true (may run 0 times)' + #13#10 +
+                    'while  do' + #13#10 +
+                    'begin' + #13#10 +
+                    '  ' + #13#10 +
+                    'end;';
+     CaretFromEnd : 19),
+
+    (Name         : 'repeat ... until';
+     Body         : '// Repeat until condition is true (always runs at least once)' + #13#10 +
+                    'repeat' + #13#10 +
+                    '  ' + #13#10 +
+                    'until ;';
+     CaretFromEnd : 1),
+
+    (Name         : 'for ... to ... do';
+     Body         : '// Loop counting up from start to end' + #13#10 +
+                    'for i := 1 to 10 do' + #13#10 +
+                    'begin' + #13#10 +
+                    '  ' + #13#10 +
+                    'end;';
+     CaretFromEnd : 9),
+
+    (Name         : 'for ... downto ... do';
+     Body         : '// Loop counting down from start to end' + #13#10 +
+                    'for i := 10 downto 1 do' + #13#10 +
+                    'begin' + #13#10 +
+                    '  ' + #13#10 +
+                    'end;';
+     CaretFromEnd : 9),
+
+    (Name         : 'case ... of (integer)';
+     Body         : '// Switch on an integer value' + #13#10 +
+                    'case  of' + #13#10 +
+                    '  1 : ;' + #13#10 +
+                    '  2 : ;' + #13#10 +
+                    'else' + #13#10 +
+                    '  ;' + #13#10 +
+                    'end;';
+     CaretFromEnd : 39),
+
+    (Name         : 'caseof ... of (string)';
+     Body         : '// Switch on a string value (MiniDelphi extension)' + #13#10 +
+                    'caseof  of' + #13#10 +
+                    '  ''a'' : ;' + #13#10 +
+                    '  ''b'' : ;' + #13#10 +
+                    'else' + #13#10 +
+                    '  ;' + #13#10 +
+                    'end;';
+     CaretFromEnd : 47),
+
+    // ── I/O ─────────────────────────────────────────────────────────────────
+    (Name         : 'writeln(...)';
+     Body         : 'writeln('''');';
+     CaretFromEnd : 3),
+
+    (Name         : 'ShowMessage(...)';
+     Body         : 'ShowMessage('''');';
+     CaretFromEnd : 3),
+
+    (Name         : 'InputBox(prompt, title, default)';
+     Body         : ' := InputBox(''Prompt:'', ''Title'', '''');';
+     CaretFromEnd : 36),
+
+    (Name         : 'if Confirm(...) then ...';
+     Body         : 'if Confirm(''Are you sure?'') then' + #13#10 +
+                    '  ;';
+     CaretFromEnd : 1),
+
+    // ── Routines ────────────────────────────────────────────────────────────
+    (Name         : 'procedure ... begin ... end;';
+     Body         : 'procedure MyProc;' + #13#10 +
+                    'begin' + #13#10 +
+                    '  ' + #13#10 +
+                    'end;';
+     CaretFromEnd : 6),
+
+    (Name         : 'function ... begin Result := ... end;';
+     Body         : 'function MyFunc: Integer;' + #13#10 +
+                    'begin' + #13#10 +
+                    '  Result := 0;' + #13#10 +
+                    'end;';
+     CaretFromEnd : 7),
+
+    // ── OOP ─────────────────────────────────────────────────────────────────
+    (Name         : 'class skeleton (type + impl)';
+     Body         : 'type' + #13#10 +
+                    '  TMyClass = class' + #13#10 +
+                    '    Name : String;' + #13#10 +
+                    '    procedure SayHello;' + #13#10 +
+                    '  end;' + #13#10 +
+                    '' + #13#10 +
+                    'procedure TMyClass.SayHello;' + #13#10 +
+                    'begin' + #13#10 +
+                    '  writeln(''Hello from '', Self.Name);' + #13#10 +
+                    'end;';
+     CaretFromEnd : 0)
+  );
+
 // =============================================================================
 //  Constructor
 // =============================================================================
 
 constructor TFormMain.Create(AOwner: TComponent);
+var
+  MM : TMainMenu;
+  MIFile, MINew, MIOpen, MISave, MIExit : TMenuItem;
 begin
   inherited CreateNew(AOwner);
   Caption   := 'MiniDelphi Toy Compiler';
@@ -350,23 +504,67 @@ begin
   FTabCalc.PageControl     := FPages;
   FTabCalc.Caption         := '  Calculator  ';
 
-  FTabLearn                := TTabSheet.Create(FPages);   // <-- ADD
-  FTabLearn.PageControl    := FPages;                     // <-- ADD
-  FTabLearn.Caption        := '  Learn Delphi  ';         // <-- ADD
+  FTabLearn                := TTabSheet.Create(FPages);
+  FTabLearn.PageControl    := FPages;
+  FTabLearn.Caption        := '  Learn Delphi  ';
 
-  FTabProject              := TTabSheet.Create(FPages);   // <-- ADD
-  FTabProject.PageControl  := FPages;                     // <-- ADD
-  FTabProject.Caption      := '  Projects  ';             // <-- ADD
+  FTabProject              := TTabSheet.Create(FPages);
+  FTabProject.PageControl  := FPages;
+  FTabProject.Caption      := '  Projects  ';
 
   BuildCompilerTab;
   BuildCalcTab;
+  BuildSnippetMenu;          // depends on FMemoSrc existing — must follow BuildCompilerTab
   FLearnTab    := TLearnTab.Create(FTabLearn);
   FProjectTab  := TProjectTab.Create(FTabProject);
   BuildExamples;
 
   FMemoSrc.Lines.Text := EXAMPLE_CODE[0];
+
+  // Build main menu
+  BuildMainMenu;
   SetStatus('Ready -- try the Calculator tab for quick maths, or Run the example above.');
 end;
+
+procedure TFormMain.OnFileExit(Sender: TObject);
+begin
+  Close;
+end;
+
+procedure TFormMain.BuildMainMenu;
+var
+  MainMenu : TMainMenu;
+  MIFile   : TMenuItem;
+  MIExit   : TMenuItem;
+  MIHelp   : TMenuItem;
+  MIAbout  : TMenuItem;
+begin
+  MainMenu := TMainMenu.Create(Self);
+
+  // ─── File menu ───
+  MIFile := TMenuItem.Create(MainMenu);
+  MIFile.Caption := '&File';
+  MainMenu.Items.Add(MIFile);
+
+  MIExit := TMenuItem.Create(MainMenu);
+  MIExit.Caption  := 'E&xit';
+  MIExit.ShortCut := ShortCut(VK_F4, [ssAlt]);
+  MIExit.OnClick  := OnFileExit;
+  MIFile.Add(MIExit);
+
+  // ─── Help menu ───
+  MIHelp := TMenuItem.Create(MainMenu);
+  MIHelp.Caption := '&Help';
+  MainMenu.Items.Add(MIHelp);
+
+  MIAbout := TMenuItem.Create(MainMenu);
+  MIAbout.Caption := '&About MiniDelphi...';
+  MIAbout.OnClick := OnAbout;
+  MIHelp.Add(MIAbout);
+
+  Self.Menu := MainMenu;   // <-- this is the line that makes it appear
+end;
+
 
 // =============================================================================
 //  COMPILER TAB
@@ -412,11 +610,21 @@ begin
 
   FBtnExample         := TButton.Create(FToolPanel);
   FBtnExample.Parent  := FToolPanel;
-  FBtnExample.Caption := '[Examples] Examples v';
+  FBtnExample.Caption := 'Examples v';
   FBtnExample.Left    := X;  FBtnExample.Top := PAD;
-  FBtnExample.Width   := BTN_W + 30;  FBtnExample.Height := BTN_H;
+  FBtnExample.Width   := BTN_W + 20;  FBtnExample.Height := BTN_H;
   FBtnExample.OnClick := OnExample;
-  Inc(X, BTN_W + 30 + PAD * 4);
+  Inc(X, BTN_W + 20 + PAD);
+
+  FBtnInsert          := TButton.Create(FToolPanel);
+  FBtnInsert.Parent   := FToolPanel;
+  FBtnInsert.Caption  := 'Insert v';
+  FBtnInsert.Left     := X;  FBtnInsert.Top := PAD;
+  FBtnInsert.Width    := BTN_W;  FBtnInsert.Height := BTN_H;
+  FBtnInsert.OnClick  := OnInsertClick;
+  FBtnInsert.Hint     := 'Insert code snippet (or right-click in the editor)';
+  FBtnInsert.ShowHint := True;
+  Inc(X, BTN_W + PAD * 3);
 
   FStatusLabel            := TLabel.Create(FToolPanel);
   FStatusLabel.Parent     := FToolPanel;
@@ -466,7 +674,7 @@ begin
   FLabelSrc                 := TLabel.Create(FLeftPanel);
   FLabelSrc.Parent          := FLeftPanel;
   FLabelSrc.Align           := alTop;
-  FLabelSrc.Caption         := ' SOURCE CODE';
+  FLabelSrc.Caption         := ' SOURCE CODE  -  right-click for snippets';
   FLabelSrc.Font.Style      := [fsBold];
   FLabelSrc.Height          := 20;
 
@@ -522,6 +730,70 @@ begin
   FMemoOut.Font.Size        := 10;
   FMemoOut.Color            := $00121212;
   FMemoOut.Font.Color       := $00F8F8F2;
+end;
+
+// =============================================================================
+//  SNIPPET MENU  -  shared by toolbar Insert button and FMemoSrc right-click
+// =============================================================================
+
+procedure TFormMain.BuildSnippetMenu;
+var
+  I    : Integer;
+  Item : TMenuItem;
+  Sep  : TMenuItem;
+begin
+  FSnippetMenu := TPopupMenu.Create(Self);
+
+  for I := 0 to High(SNIPPETS) do
+  begin
+    // Separators between control flow / I/O / routines / OOP groups
+    // (matches the layout of the SNIPPETS array above)
+    if (I = 8) or (I = 12) or (I = 14) then
+    begin
+      Sep := TMenuItem.Create(FSnippetMenu);
+      Sep.Caption := '-';
+      FSnippetMenu.Items.Add(Sep);
+    end;
+
+    Item         := TMenuItem.Create(FSnippetMenu);
+    Item.Caption := SNIPPETS[I].Name;
+    Item.Tag     := I;
+    Item.OnClick := OnSnippetClick;
+    FSnippetMenu.Items.Add(Item);
+  end;
+
+  // Wire the same menu up to the editor for right-click access
+  FMemoSrc.PopupMenu := FSnippetMenu;
+end;
+
+procedure TFormMain.InsertSnippet(const Body: string; CaretFromEnd: Integer);
+var
+  StartPos : Integer;
+begin
+  StartPos := FMemoSrc.SelStart;
+  // SelText replaces any current selection, or inserts at caret if none
+  FMemoSrc.SelText  := Body;
+  // Position caret inside the template where the user is likely to type next
+  FMemoSrc.SelStart := StartPos + Length(Body) - CaretFromEnd;
+  FMemoSrc.SelLength := 0;
+  FMemoSrc.SetFocus;
+end;
+
+procedure TFormMain.OnSnippetClick(Sender: TObject);
+var
+  Idx : Integer;
+begin
+  Idx := (Sender as TMenuItem).Tag;
+  if (Idx >= 0) and (Idx <= High(SNIPPETS)) then
+    InsertSnippet(SNIPPETS[Idx].Body, SNIPPETS[Idx].CaretFromEnd);
+end;
+
+procedure TFormMain.OnInsertClick(Sender: TObject);
+var
+  P : TPoint;
+begin
+  P := FBtnInsert.ClientToScreen(Point(0, FBtnInsert.Height));
+  FSnippetMenu.Popup(P.X, P.Y);
 end;
 
 // =============================================================================
@@ -989,13 +1261,6 @@ var
   ParseErr  : string;
   ParseLine : Integer;
   ParseCol  : Integer;
-  ECount    : Integer;
-  WCount    : Integer;
-  Issue     : TValidationIssue;
-  FirstErrorLine : Integer;
-  Prefix    : string;
-  II        : Integer;
-  L         : Integer;
 begin
   FMemoOut.Clear;  FMemoTok.Clear;
   ClearHighlight;
@@ -1130,34 +1395,8 @@ begin
 end;
 
 procedure TFormMain.OnAbout(Sender: TObject);
-var
-  Msg : string;
 begin
-  Msg :=
-    'MiniDelphi Toy Compiler & Learning IDE' + #13#10 +
-    '-----------------------------------------' + #13#10 +
-    '' + #13#10 +
-    'Version 1.0  |  May 2026' + #13#10 +
-    '' + #13#10 +
-    'Copyright (c) 2026 Nomidor Software, LLC.' + #13#10 +
-    'All rights reserved.' + #13#10 +
-    '' + #13#10 +
-    'A complete Delphi learning environment featuring:' + #13#10 +
-    '  * Full lexer, parser and interpreter pipeline' + #13#10 +
-    '  * 4 tabs: Compiler, Calculator, Learn Delphi, Projects' + #13#10 +
-    '  * 13 lessons, 45 challenges and a completion certificate' + #13#10 +
-    '  * 40 single-file and 10 multi-file example programs' + #13#10 +
-    '  * OOP: classes, inheritance, interfaces, polymorphism' + #13#10 +
-    '  * SQLite database support (requires sqlite3.dll)' + #13#10 +
-    '  * Unit import system (.mdp library files)' + #13#10 +
-    '  * File dialogs, message boxes, file I/O builtins' + #13#10 +
-    '  * Project save/load with .mdp and .mdproj formats' + #13#10 +
-    '' + #13#10 +
-    'Built with Embarcadero Delphi 13.' + #13#10 +
-    '' + #13#10 +
-    'www.nomidor.com';
-
-  MessageDlg(Msg, mtInformation, [mbOK], 0);
+  ShowAboutDialog;
 end;
 
 

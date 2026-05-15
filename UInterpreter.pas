@@ -1076,7 +1076,18 @@ begin
     Val := TValue.MakeStr(
       GetEnvironmentVariable('USERPROFILE') + '\Desktop')
 
-
+  // -----------------------------------------------------------------------
+  //  Sleep — pause execution for N milliseconds
+  //  Pumps messages so the Stop button stays responsive
+  // -----------------------------------------------------------------------
+  else if N = 'sleep' then
+  begin
+    var SleepMs : Integer;
+    SleepMs := A(0).ToInt;
+    if SleepMs > 0 then Winapi.Windows.Sleep(SleepMs);
+    Application.ProcessMessages;
+    Val := TValue.MakeNil;
+  end
 
   // -----------------------------------------------------------------------
   //  Graphics / Animation builtins (GfxXxx functions)
@@ -1109,7 +1120,7 @@ begin
   begin
     var GMS1 : Integer;
     GMS1 := A(0).ToInt;
-    if GMS1 > 0 then Sleep(GMS1);
+    if GMS1 > 0 then Winapi.Windows.Sleep(GMS1);
     Application.ProcessMessages;
     Val := TValue.MakeNil;
   end

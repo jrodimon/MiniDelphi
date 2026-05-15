@@ -1,7 +1,7 @@
 object FormMain: TFormMain
   Left = 0
   Top = 0
-  ClientHeight = 441
+  ClientHeight = 461
   ClientWidth = 624
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
