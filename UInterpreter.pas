@@ -1,4 +1,4 @@
-﻿unit UInterpreter;
+unit UInterpreter;
 
 // =============================================================================
 // MiniDelphi Toy Compiler & Learning IDE
@@ -28,7 +28,7 @@ uses
   USQLite,
   UObjectRuntime,
   UGraphics,
-  Winapi.Windows,
+  Winapi.Windows, Winapi.ShellAPI,
   Vcl.Dialogs, Vcl.Forms, Vcl.FileCtrl,
   UAST;
 
@@ -100,6 +100,13 @@ type
   TVarDeclList   = TObjectList<TVarDecl>;
   TRoutineDeclMap= TDictionary<string, TRoutineDecl>;
 
+  // ---------------------------------------------------------------------
+  //  Shell confirmation callback used by Shell* builtins.
+  //  Return True to allow the call, False to deny.
+  //  When AllowShell=True on the interpreter, this callback is bypassed.
+  // ---------------------------------------------------------------------
+  TShellConfirmFunc = function (const Cmd: string): Boolean of object;
+
   // -------------------------------------------------------------------
   //  The Interpreter
   // -------------------------------------------------------------------
@@ -115,6 +122,8 @@ type
     FSourcePath: string;               // folder of the .mdp file (for unit loading)
     FSourceText: string;               // raw source (so loader can scan uses clause)
     FStop : Boolean;
+    FAllowShell   : Boolean;          // True = Shell* runs without prompting
+    FShellConfirm : TShellConfirmFunc; // called per Shell* when AllowShell is False
     procedure Tick;
     procedure RegisterRoutines;
     procedure DeclareVars(Env: TEnvironment; Decls: TVarDeclList);
@@ -174,6 +183,11 @@ type
     // Set these before Run so the unit loader can find imported .mdp files
     property SourcePath  : string  read FSourcePath  write FSourcePath;
     property SourceText  : string  read FSourceText  write FSourceText;
+    // Shell control. When AllowShell=True, Shell* builtins run silently.
+    // When False (default), each Shell call invokes ShellConfirm; if that
+    // callback is nil, the call is denied for safety.
+    property AllowShell   : Boolean           read FAllowShell   write FAllowShell;
+    property ShellConfirm : TShellConfirmFunc read FShellConfirm write FShellConfirm;
   end;
 
 // =============================================================================
@@ -364,6 +378,8 @@ begin
   FMaxSteps := 1000000;   // safety limit
   FSteps    := 0;
   FStop := False;
+  FAllowShell   := False;
+  FShellConfirm := nil;
 end;
 
 procedure TInterpreter.RequestStop;
@@ -1088,6 +1104,143 @@ begin
     Application.ProcessMessages;
     Val := TValue.MakeNil;
   end
+
+  // -----------------------------------------------------------------------
+  //  Shell builtins — run external programs, URLs, mailto: links, etc.
+  //  Permission model:
+  //    AllowShell = True  -> run silently
+  //    AllowShell = False and ShellConfirm assigned -> ask the user
+  //    AllowShell = False and ShellConfirm = nil    -> deny silently
+  // -----------------------------------------------------------------------
+  else if N = 'shell' then
+  begin
+    // Fire-and-forget: ShellExecute open verb handles URLs, mailto:,
+    // file paths, and executables uniformly.
+    var ShCmd : string;
+    var ShOK  : Boolean;
+    ShCmd := A(0).ToStr;
+    ShOK  := FAllowShell;
+    if (not ShOK) and Assigned(FShellConfirm) then
+      ShOK := FShellConfirm(ShCmd);
+    if ShOK then
+    begin
+      ShellExecute(0, 'open', PChar(ShCmd), nil, nil, SW_SHOWNORMAL);
+      Val := TValue.MakeBool(True);
+    end
+    else
+    begin
+      Output('Shell call denied: ' + ShCmd);
+      Val := TValue.MakeBool(False);
+    end;
+  end
+
+  else if N = 'shellwait' then
+  begin
+    // Runs the command via cmd.exe /c so shell built-ins like robocopy,
+    // dir, wmic, forfiles all work. Blocks until the process exits and
+    // returns the exit code as an Integer (-1 on failure to launch).
+    var SwCmd  : string;
+    var SwOK   : Boolean;
+    var SwLine : string;
+    var SwSI   : TStartupInfo;
+    var SwPI   : TProcessInformation;
+    var SwExit : DWORD;
+    SwCmd := A(0).ToStr;
+    SwOK  := FAllowShell;
+    if (not SwOK) and Assigned(FShellConfirm) then
+      SwOK := FShellConfirm(SwCmd);
+    if not SwOK then
+    begin
+      Output('Shell call denied: ' + SwCmd);
+      Val := TValue.MakeInt(-1);
+      Exit;
+    end;
+    SwLine := 'cmd.exe /c ' + SwCmd;
+    FillChar(SwSI, SizeOf(SwSI), 0);
+    SwSI.cb := SizeOf(SwSI);
+    SwSI.dwFlags := STARTF_USESHOWWINDOW;
+    SwSI.wShowWindow := SW_HIDE;
+    if CreateProcess(nil, PChar(SwLine), nil, nil, False,
+                     CREATE_NO_WINDOW, nil, nil, SwSI, SwPI) then
+    begin
+      WaitForSingleObject(SwPI.hProcess, INFINITE);
+      GetExitCodeProcess(SwPI.hProcess, SwExit);
+      CloseHandle(SwPI.hThread);
+      CloseHandle(SwPI.hProcess);
+      Val := TValue.MakeInt(Integer(SwExit));
+    end
+    else
+      Val := TValue.MakeInt(-1);
+  end
+
+  else if N = 'shellhidden' then
+  begin
+    // Like Shell but with no visible window
+    var ShhCmd : string;
+    var ShhOK  : Boolean;
+    ShhCmd := A(0).ToStr;
+    ShhOK  := FAllowShell;
+    if (not ShhOK) and Assigned(FShellConfirm) then
+      ShhOK := FShellConfirm(ShhCmd);
+    if ShhOK then
+    begin
+      ShellExecute(0, 'open', PChar(ShhCmd), nil, nil, SW_HIDE);
+      Val := TValue.MakeBool(True);
+    end
+    else
+    begin
+      Output('Shell call denied: ' + ShhCmd);
+      Val := TValue.MakeBool(False);
+    end;
+  end
+
+  // -----------------------------------------------------------------------
+  //  Environment / date / encoding helpers used by macros
+  // -----------------------------------------------------------------------
+  else if N = 'getenvvar' then
+    Val := TValue.MakeStr(GetEnvironmentVariable(A(0).ToStr))
+
+  else if N = 'datestr' then
+    // Today as YYYY-MM-DD (filename-safe)
+    Val := TValue.MakeStr(FormatDateTime('yyyy-mm-dd', Now))
+
+  else if N = 'timestr' then
+    Val := TValue.MakeStr(FormatDateTime('hh:nn:ss', Now))
+
+  else if N = 'urlencode' then
+  begin
+    // Minimal mailto-safe encoder. Real percent-encoding is broader,
+    // but this handles the cases that break mailto: URLs in practice.
+    var UeS, UeR : string;
+    var UeI : Integer;
+    var UeC : Char;
+    UeS := A(0).ToStr;
+    UeR := '';
+    for UeI := 1 to Length(UeS) do
+    begin
+      UeC := UeS[UeI];
+      case UeC of
+        ' '   : UeR := UeR + '%20';
+        #10   : UeR := UeR + '%0A';
+        #13   : ;                       // CR dropped; LF carries the newline
+        '&'   : UeR := UeR + '%26';
+        '#'   : UeR := UeR + '%23';
+        '?'   : UeR := UeR + '%3F';
+        '"'   : UeR := UeR + '%22';
+        '<'   : UeR := UeR + '%3C';
+        '>'   : UeR := UeR + '%3E';
+      else
+        UeR := UeR + UeC;
+      end;
+    end;
+    Val := TValue.MakeStr(UeR);
+  end
+
+  else if N = 'extractfilename' then
+    Val := TValue.MakeStr(ExtractFileName(A(0).ToStr))
+
+  else if N = 'extractfilepath' then
+    Val := TValue.MakeStr(ExtractFilePath(A(0).ToStr))
 
   // -----------------------------------------------------------------------
   //  Graphics / Animation builtins (GfxXxx functions)

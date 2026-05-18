@@ -1,25 +1,43 @@
-﻿unit UMainForm;
+unit UMainForm;
 
 // =============================================================================
 // MiniDelphi Toy Compiler & Learning IDE
 // Copyright (C) 2026 Nomidor Software, LLC.
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// See the LICENSE file or https://www.gnu.org/licenses/gpl-3.0.html
+// GPL v3 — see https://www.gnu.org/licenses/gpl-3.0.html
 // =============================================================================
 
 // =============================================================================
 //  UMainForm.pas  -  VCL front-end for the MiniDelphi Toy Compiler
 //
-//  Four tabs:
-//    [Compiler]     -- source editor, lexer, parser, runner, snippet menu
-//    [Calculator]   -- type any expression, press Enter or =, see the answer
-//    [Learn Delphi] -- interactive lessons
-//    [Projects]     -- multi-file project IDE
+//  Five tabs:   Compiler | Calculator | Learn Delphi | Projects | Macros
+//
+//  Main menu:
+//      File  → New File (Ctrl+N)
+//              Open File... (Ctrl+O)
+//              Save (Ctrl+S)
+//              Save As...
+//              ────────────
+//              New Project...
+//              Open Project...
+//              Close Project
+//              ────────────
+//              Exit (Alt+F4)
+//
+//      View  → View Project Source (Ctrl+F11)
+//              ────────────
+//              Show Tokens (Lex)
+//              Show AST (Parse)
+//
+//      Help  → Examples →   [8 example programs]
+//              ────────────
+//              About MiniDelphi...
+//
+//  File menu actions auto-switch to the Projects tab.
+//  View → Show Tokens/AST and Help → Examples auto-switch to Compiler tab.
+//
+//  Compiler tab toolbar: Run / Clear only
+//  Projects tab toolbar: Run / Stop only
+//  Snippet insertion is via right-click in either editor.
 // =============================================================================
 
 interface
@@ -31,20 +49,10 @@ uses
   Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.ExtCtrls,
   Vcl.Menus, Vcl.ComCtrls, Vcl.Buttons, Vcl.Graphics,
   ULexer, UParser, UAST, UInterpreter, UValidator,
-    ULearnTab,
-  UProjectTab, UExampleProjects,UAboutDialog;
+  ULearnTab, UProjectTab, UMacroTab,
+  UExampleProjects, UAboutDialog;
 
 type
-  // ---------------------------------------------------------------------------
-  //  Snippet record — used by the Insert button and editor right-click menu
-  //
-  //    Name         menu caption shown to the user
-  //    Body         text inserted at the caret (use #13#10 for newlines)
-  //    CaretFromEnd how many chars back from end of insertion the caret
-  //                 should land on (so the user can start typing in a
-  //                 sensible place, e.g. inside an empty condition).
-  //                 0 = caret at the very end of the insertion.
-  // ---------------------------------------------------------------------------
   TSnippet = record
     Name         : string;
     Body         : string;
@@ -53,9 +61,7 @@ type
 
   TFormMain = class(TForm)
   private
-    // ------------------------------------------------------------------
-    //  Top-level page control  (four tabs)
-    // ------------------------------------------------------------------
+    // Pages
     FPages          : TPageControl;
     FTabCompiler    : TTabSheet;
     FTabCalc        : TTabSheet;
@@ -63,18 +69,13 @@ type
     FLearnTab       : TLearnTab;
     FTabProject     : TTabSheet;
     FProjectTab     : TProjectTab;
+    FTabMacro       : TTabSheet;
+    FMacroTab       : TMacroTab;
 
-    // ------------------------------------------------------------------
-    //  COMPILER TAB
-    // ------------------------------------------------------------------
+    // Compiler tab — trimmed toolbar
     FToolPanel      : TPanel;
-    FBtnLex         : TButton;
-    FBtnParse       : TButton;
     FBtnRun         : TButton;
     FBtnClear       : TButton;
-    FBtnExample     : TButton;
-    FBtnInsert      : TButton;
-    FBtnAbout       : TButton;
     FStatusLabel    : TLabel;
 
     FSplitterMain   : TSplitter;
@@ -94,12 +95,9 @@ type
     FLabelTok       : TLabel;
     FMemoTok        : TMemo;
 
-    FExampleMenu    : TPopupMenu;
-    FSnippetMenu    : TPopupMenu;   // shared by Insert btn and FMemoSrc right-click
+    FSnippetMenu    : TPopupMenu;
 
-    // ------------------------------------------------------------------
-    //  CALCULATOR TAB
-    // ------------------------------------------------------------------
+    // Calculator tab
     FCalcOuter      : TPanel;
     FCalcHistory    : TMemo;
     FCalcInputPanel : TPanel;
@@ -108,37 +106,53 @@ type
     FCalcBtn        : TButton;
     FCalcHintLabel  : TLabel;
 
-    // ------------------------------------------------------------------
-    //  Internal helpers
-    // ------------------------------------------------------------------
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    procedure BuildMainMenu;
     procedure BuildCompilerTab;
     procedure BuildCalcTab;
-    procedure BuildExamples;
     procedure BuildSnippetMenu;
     procedure InsertSnippet(const Body: string; CaretFromEnd: Integer);
     procedure SetStatus(const Msg: string; IsError: Boolean = False);
     procedure HighlightErrorLine(Line: Integer);
     procedure ClearHighlight;
-    procedure ShowValidationResults(V: TValidator; ParseErr: string; ParseLine, ParseCol: Integer);
+    procedure ShowValidationResults(V: TValidator; ParseErr: string;
+                                    ParseLine, ParseCol: Integer);
     procedure ShowTokens(Tokens: TList<TToken>);
     procedure EvalExpression;
+    procedure GoToProjectsTab;
+    procedure GoToCompilerTab;
 
-    procedure BuildMainMenu;
-
+    // Compiler tab handlers
     procedure OnLex            (Sender: TObject);
     procedure OnParse          (Sender: TObject);
     procedure OnRun            (Sender: TObject);
     procedure OnClear          (Sender: TObject);
-    procedure OnExample        (Sender: TObject);
     procedure OnExampleClick   (Sender: TObject);
-    procedure OnInsertClick    (Sender: TObject);
     procedure OnSnippetClick   (Sender: TObject);
-    procedure OnAbout          (Sender: TObject);
+
+    // File menu handlers
+    procedure OnMenuNewFile      (Sender: TObject);
+    procedure OnMenuOpenFile     (Sender: TObject);
+    procedure OnMenuSave         (Sender: TObject);
+    procedure OnMenuSaveAs       (Sender: TObject);
+    procedure OnMenuNewProject   (Sender: TObject);
+    procedure OnMenuOpenProject  (Sender: TObject);
+    procedure OnMenuCloseProject (Sender: TObject);
+    procedure OnFileExit         (Sender: TObject);
+
+    // View menu
+    procedure OnViewProjectSource(Sender: TObject);
+    procedure OnViewShowTokens   (Sender: TObject);
+    procedure OnViewShowAST      (Sender: TObject);
+
+    // Help menu
+    procedure OnAbout            (Sender: TObject);
+
+    // Calculator handlers
     procedure OnCalcBtn        (Sender: TObject);
     procedure OnCalcKey        (Sender: TObject; var Key: Char);
     procedure OnCalcSpecialKey (Sender: TObject; var Key: Word;
                                 Shift: TShiftState);
-    procedure OnFileExit(Sender: TObject);
   public
     constructor Create(AOwner: TComponent); override;
   end;
@@ -146,9 +160,7 @@ type
 var
   FormMain: TFormMain;
 
-// =============================================================================
 implementation
-// =============================================================================
 
 {$R *.dfm}
 
@@ -204,16 +216,11 @@ const
     ''                                                               + #13#10 +
     'begin'                                                          + #13#10 +
     '  writeln(''Fibonacci sequence:'');'                            + #13#10 +
-    '  a := 0;'                                                      + #13#10 +
-    '  b := 1;'                                                      + #13#10 +
-    '  writeln(a);'                                                  + #13#10 +
-    '  writeln(b);'                                                  + #13#10 +
+    '  a := 0;  b := 1;'                                             + #13#10 +
+    '  writeln(a);  writeln(b);'                                     + #13#10 +
     '  for i := 1 to 15 do'                                          + #13#10 +
     '  begin'                                                        + #13#10 +
-    '    c := a + b;'                                                + #13#10 +
-    '    writeln(c);'                                                + #13#10 +
-    '    a := b;'                                                    + #13#10 +
-    '    b := c;'                                                    + #13#10 +
+    '    c := a + b;  writeln(c);  a := b;  b := c;'                 + #13#10 +
     '  end;'                                                         + #13#10 +
     'end.',
 
@@ -221,53 +228,35 @@ const
     ''                                                               + #13#10 +
     'function Fact(n: Integer): Integer;'                            + #13#10 +
     'begin'                                                          + #13#10 +
-    '  if n <= 1 then'                                               + #13#10 +
-    '    Result := 1'                                                + #13#10 +
-    '  else'                                                         + #13#10 +
-    '    Result := n * Fact(n - 1);'                                 + #13#10 +
+    '  if n <= 1 then Result := 1'                                   + #13#10 +
+    '  else Result := n * Fact(n - 1);'                              + #13#10 +
     'end;'                                                           + #13#10 +
     ''                                                               + #13#10 +
-    'var'                                                            + #13#10 +
-    '  i : Integer;'                                                 + #13#10 +
-    ''                                                               + #13#10 +
+    'var i : Integer;'                                               + #13#10 +
     'begin'                                                          + #13#10 +
-    '  for i := 0 to 12 do'                                          + #13#10 +
-    '    writeln(i, ''! = '', Fact(i));'                             + #13#10 +
+    '  for i := 0 to 12 do writeln(i, ''! = '', Fact(i));'           + #13#10 +
     'end.',
 
     'program Primes;'                                                + #13#10 +
     ''                                                               + #13#10 +
     'function IsPrime(n: Integer): Boolean;'                         + #13#10 +
-    'var'                                                            + #13#10 +
-    '  i : Integer;'                                                 + #13#10 +
+    'var i : Integer;'                                               + #13#10 +
     'begin'                                                          + #13#10 +
     '  if n < 2 then begin Result := false; exit; end;'              + #13#10 +
-    '  i := 2;'                                                      + #13#10 +
-    '  Result := true;'                                              + #13#10 +
+    '  i := 2;  Result := true;'                                     + #13#10 +
     '  while i * i <= n do'                                          + #13#10 +
     '  begin'                                                        + #13#10 +
-    '    if n mod i = 0 then'                                        + #13#10 +
-    '    begin'                                                      + #13#10 +
-    '      Result := false;'                                         + #13#10 +
-    '      exit;'                                                    + #13#10 +
-    '    end;'                                                       + #13#10 +
+    '    if n mod i = 0 then begin Result := false; exit; end;'      + #13#10 +
     '    inc(i);'                                                    + #13#10 +
     '  end;'                                                         + #13#10 +
     'end;'                                                           + #13#10 +
     ''                                                               + #13#10 +
-    'var'                                                            + #13#10 +
-    '  n, count : Integer;'                                          + #13#10 +
-    ''                                                               + #13#10 +
+    'var n, count : Integer;'                                        + #13#10 +
     'begin'                                                          + #13#10 +
     '  writeln(''Primes up to 100:'');'                              + #13#10 +
     '  count := 0;'                                                  + #13#10 +
     '  for n := 2 to 100 do'                                         + #13#10 +
-    '    if IsPrime(n) then'                                         + #13#10 +
-    '    begin'                                                      + #13#10 +
-    '      write(n);'                                                + #13#10 +
-    '      write('' '');'                                            + #13#10 +
-    '      inc(count);'                                              + #13#10 +
-    '    end;'                                                       + #13#10 +
+    '    if IsPrime(n) then begin write(n); write('' ''); inc(count); end;' + #13#10 +
     '  writeln('''');'                                               + #13#10 +
     '  writeln(''Total: '', count, '' primes'');'                    + #13#10 +
     'end.',
@@ -276,7 +265,6 @@ const
     ''                                                               + #13#10 +
     'var'                                                            + #13#10 +
     '  s, t : String;'                                               + #13#10 +
-    '  i    : Integer;'                                              + #13#10 +
     ''                                                               + #13#10 +
     'begin'                                                          + #13#10 +
     '  s := ''Hello, MiniDelphi!'';'                                 + #13#10 +
@@ -290,12 +278,8 @@ const
     '  writeln(''Concat    : '', s + '' (and more!)'');'             + #13#10 +
     'end.',
 
-    // 6 -- case (integer)
     'program CaseDemo;'                                              + #13#10 +
-    ''                                                               + #13#10 +
-    'var'                                                            + #13#10 +
-    '  score : Integer;'                                             + #13#10 +
-    ''                                                               + #13#10 +
+    'var score : Integer;'                                           + #13#10 +
     'begin'                                                          + #13#10 +
     '  score := 85;'                                                 + #13#10 +
     '  writeln(''Score: '', score);'                                 + #13#10 +
@@ -308,37 +292,19 @@ const
     '  else'                                                         + #13#10 +
     '    writeln(''F - Fail'');'                                     + #13#10 +
     '  end;'                                                         + #13#10 +
-    ''                                                               + #13#10 +
-    '  writeln(''--- Days of week ---'');'                           + #13#10 +
-    '  var day : Integer;'                                           + #13#10 +
-    '  for day := 1 to 7 do'                                         + #13#10 +
-    '  begin'                                                        + #13#10 +
-    '    write(day, '' = '');'                                       + #13#10 +
-    '    case day of'                                                + #13#10 +
-    '      1 : writeln(''Monday'');'                                 + #13#10 +
-    '      2 : writeln(''Tuesday'');'                                + #13#10 +
-    '      3 : writeln(''Wednesday'');'                              + #13#10 +
-    '      4 : writeln(''Thursday'');'                               + #13#10 +
-    '      5 : writeln(''Friday'');'                                 + #13#10 +
-    '      6, 7 : writeln(''Weekend!'');'                            + #13#10 +
-    '    end;'                                                       + #13#10 +
-    '  end;'                                                         + #13#10 +
     'end.',
 
-    // 7 -- caseof (string switch -- our MiniDelphi invention)
     'program CaseOfDemo;'                                            + #13#10 +
     ''                                                               + #13#10 +
     'procedure Describe(animal: String);'                            + #13#10 +
     'begin'                                                          + #13#10 +
     '  write(animal, '' -> '');'                                     + #13#10 +
     '  caseof animal of'                                             + #13#10 +
-    '    ''cat''            : writeln(''Meow! Cats are independent.'');'        + #13#10 +
-    '    ''dog'', ''hound'' : writeln(''Woof! Dogs are loyal.'');'             + #13#10 +
-    '    ''cow''            : writeln(''Moo! Cows give milk.'');'               + #13#10 +
-    '    ''parrot''         : writeln(''Squawk! Parrots can talk.'');'          + #13#10 +
-    '    ''goldfish''       : writeln(''...(blows bubbles)'');'                 + #13#10 +
+    '    ''cat''            : writeln(''Meow!'');'                   + #13#10 +
+    '    ''dog'', ''hound'' : writeln(''Woof!'');'                   + #13#10 +
+    '    ''cow''            : writeln(''Moo!'');'                    + #13#10 +
     '  else'                                                         + #13#10 +
-    '    writeln(''Unknown animal!'');'                               + #13#10 +
+    '    writeln(''Unknown!'');'                                     + #13#10 +
     '  end;'                                                         + #13#10 +
     'end;'                                                           + #13#10 +
     ''                                                               + #13#10 +
@@ -346,22 +312,13 @@ const
     '  Describe(''cat'');'                                           + #13#10 +
     '  Describe(''dog'');'                                           + #13#10 +
     '  Describe(''cow'');'                                           + #13#10 +
-    '  Describe(''parrot'');'                                        + #13#10 +
-    '  Describe(''goldfish'');'                                      + #13#10 +
     '  Describe(''unicorn'');'                                       + #13#10 +
     'end.'
   );
 
-// ---------------------------------------------------------------------------
-//  Snippet library — used by Insert button and FMemoSrc right-click menu
-//
-//  CaretFromEnd counts back from the END of the inserted text. Tune by
-//  trial and error if the cursor lands in an awkward spot.
-// ---------------------------------------------------------------------------
 const
   SNIPPETS : array[0..14] of TSnippet = (
 
-    // ── Control flow ────────────────────────────────────────────────────────
     (Name         : 'if ... then';
      Body         : '// Run inner statement only when condition is true' + #13#10 +
                     'if  then' + #13#10 +
@@ -427,7 +384,6 @@ const
                     'end;';
      CaretFromEnd : 47),
 
-    // ── I/O ─────────────────────────────────────────────────────────────────
     (Name         : 'writeln(...)';
      Body         : 'writeln('''');';
      CaretFromEnd : 3),
@@ -445,7 +401,6 @@ const
                     '  ;';
      CaretFromEnd : 1),
 
-    // ── Routines ────────────────────────────────────────────────────────────
     (Name         : 'procedure ... begin ... end;';
      Body         : 'procedure MyProc;' + #13#10 +
                     'begin' + #13#10 +
@@ -460,7 +415,6 @@ const
                     'end;';
      CaretFromEnd : 7),
 
-    // ── OOP ─────────────────────────────────────────────────────────────────
     (Name         : 'class skeleton (type + impl)';
      Body         : 'type' + #13#10 +
                     '  TMyClass = class' + #13#10 +
@@ -480,9 +434,6 @@ const
 // =============================================================================
 
 constructor TFormMain.Create(AOwner: TComponent);
-var
-  MM : TMainMenu;
-  MIFile, MINew, MIOpen, MISave, MIExit : TMenuItem;
 begin
   inherited CreateNew(AOwner);
   Caption   := 'MiniDelphi Toy Compiler';
@@ -491,6 +442,8 @@ begin
   Position  := poScreenCenter;
   Font.Name := 'Segoe UI';
   Font.Size := 10;
+
+  BuildMainMenu;
 
   FPages                   := TPageControl.Create(Self);
   FPages.Parent            := Self;
@@ -512,18 +465,166 @@ begin
   FTabProject.PageControl  := FPages;
   FTabProject.Caption      := '  Projects  ';
 
+  FTabMacro                := TTabSheet.Create(FPages);
+  FTabMacro.PageControl    := FPages;
+  FTabMacro.Caption        := '  Macros  ';
+
   BuildCompilerTab;
   BuildCalcTab;
-  BuildSnippetMenu;          // depends on FMemoSrc existing — must follow BuildCompilerTab
+  BuildSnippetMenu;
   FLearnTab    := TLearnTab.Create(FTabLearn);
   FProjectTab  := TProjectTab.Create(FTabProject);
-  BuildExamples;
+  FMacroTab    := TMacroTab.Create(FTabMacro);
 
   FMemoSrc.Lines.Text := EXAMPLE_CODE[0];
+  SetStatus('Ready -- right-click in the editor for snippets, or pick Help > Examples.');
+end;
 
-  // Build main menu
-  BuildMainMenu;
-  SetStatus('Ready -- try the Calculator tab for quick maths, or Run the example above.');
+// =============================================================================
+//  MAIN MENU
+// =============================================================================
+
+procedure TFormMain.BuildMainMenu;
+
+  function MakeItem(Owner: TMenuItem; const Cap: string;
+                    Handler: TNotifyEvent; SC: TShortCut = 0): TMenuItem;
+  begin
+    Result := TMenuItem.Create(Owner);
+    Result.Caption := Cap;
+    if Assigned(Handler) then Result.OnClick := Handler;
+    if SC <> 0 then Result.ShortCut := SC;
+    Owner.Add(Result);
+  end;
+
+  function MakeSep(Owner: TMenuItem): TMenuItem;
+  begin
+    Result := TMenuItem.Create(Owner);
+    Result.Caption := '-';
+    Owner.Add(Result);
+  end;
+
+var
+  MM       : TMainMenu;
+  MIFile   : TMenuItem;
+  MIView   : TMenuItem;
+  MIHelp   : TMenuItem;
+  MIExSub  : TMenuItem;
+  Ex       : TMenuItem;
+  I        : Integer;
+begin
+  MM := TMainMenu.Create(Self);
+
+  // ─── File ──────────────────────────────────────────────────────────────
+  MIFile := TMenuItem.Create(MM);
+  MIFile.Caption := '&File';
+  MM.Items.Add(MIFile);
+
+  MakeItem(MIFile, '&New File',         OnMenuNewFile,
+           ShortCut(Ord('N'), [ssCtrl]));
+  MakeItem(MIFile, '&Open File...',     OnMenuOpenFile,
+           ShortCut(Ord('O'), [ssCtrl]));
+  MakeItem(MIFile, '&Save',             OnMenuSave,
+           ShortCut(Ord('S'), [ssCtrl]));
+  MakeItem(MIFile, 'Save &As...',       OnMenuSaveAs);
+  MakeSep (MIFile);
+  MakeItem(MIFile, 'New &Project...',   OnMenuNewProject);
+  MakeItem(MIFile, 'Open Pr&oject...',  OnMenuOpenProject);
+  MakeItem(MIFile, '&Close Project',    OnMenuCloseProject);
+  MakeSep (MIFile);
+  MakeItem(MIFile, 'E&xit',             OnFileExit,
+           ShortCut(VK_F4, [ssAlt]));
+
+  // ─── View ──────────────────────────────────────────────────────────────
+  MIView := TMenuItem.Create(MM);
+  MIView.Caption := '&View';
+  MM.Items.Add(MIView);
+
+  MakeItem(MIView, 'View &Project Source', OnViewProjectSource,
+           ShortCut(VK_F11, [ssCtrl]));
+  MakeSep (MIView);
+  MakeItem(MIView, 'Show &Tokens',         OnViewShowTokens);
+  MakeItem(MIView, 'Show &AST',            OnViewShowAST);
+
+  // ─── Help ──────────────────────────────────────────────────────────────
+  MIHelp := TMenuItem.Create(MM);
+  MIHelp.Caption := '&Help';
+  MM.Items.Add(MIHelp);
+
+  MIExSub := TMenuItem.Create(MIHelp);
+  MIExSub.Caption := '&Examples';
+  MIHelp.Add(MIExSub);
+
+  for I := 0 to EXAMPLE_COUNT - 1 do
+  begin
+    Ex := TMenuItem.Create(MIExSub);
+    Ex.Caption := EXAMPLE_NAMES[I];
+    Ex.Tag     := I;
+    Ex.OnClick := OnExampleClick;
+    MIExSub.Add(Ex);
+  end;
+
+  MakeSep (MIHelp);
+  MakeItem(MIHelp, '&About MiniDelphi...', OnAbout);
+
+  Self.Menu := MM;
+end;
+
+procedure TFormMain.GoToProjectsTab;
+begin
+  if FPages.ActivePage <> FTabProject then
+    FPages.ActivePage := FTabProject;
+end;
+
+procedure TFormMain.GoToCompilerTab;
+begin
+  if FPages.ActivePage <> FTabCompiler then
+    FPages.ActivePage := FTabCompiler;
+end;
+
+// ---------------------------------------------------------------------------
+//  File menu — all delegate to TProjectTab
+// ---------------------------------------------------------------------------
+
+procedure TFormMain.OnMenuNewFile(Sender: TObject);
+begin
+  GoToProjectsTab;
+  if Assigned(FProjectTab) then FProjectTab.DoNewFile;
+end;
+
+procedure TFormMain.OnMenuOpenFile(Sender: TObject);
+begin
+  GoToProjectsTab;
+  if Assigned(FProjectTab) then FProjectTab.DoOpenFile;
+end;
+
+procedure TFormMain.OnMenuSave(Sender: TObject);
+begin
+  GoToProjectsTab;
+  if Assigned(FProjectTab) then FProjectTab.DoSave;
+end;
+
+procedure TFormMain.OnMenuSaveAs(Sender: TObject);
+begin
+  GoToProjectsTab;
+  if Assigned(FProjectTab) then FProjectTab.DoSaveAs;
+end;
+
+procedure TFormMain.OnMenuNewProject(Sender: TObject);
+begin
+  GoToProjectsTab;
+  if Assigned(FProjectTab) then FProjectTab.DoNewProject;
+end;
+
+procedure TFormMain.OnMenuOpenProject(Sender: TObject);
+begin
+  GoToProjectsTab;
+  if Assigned(FProjectTab) then FProjectTab.DoOpenProject;
+end;
+
+procedure TFormMain.OnMenuCloseProject(Sender: TObject);
+begin
+  GoToProjectsTab;
+  if Assigned(FProjectTab) then FProjectTab.DoCloseProject;
 end;
 
 procedure TFormMain.OnFileExit(Sender: TObject);
@@ -531,43 +632,35 @@ begin
   Close;
 end;
 
-procedure TFormMain.BuildMainMenu;
-var
-  MainMenu : TMainMenu;
-  MIFile   : TMenuItem;
-  MIExit   : TMenuItem;
-  MIHelp   : TMenuItem;
-  MIAbout  : TMenuItem;
+// ---------------------------------------------------------------------------
+//  View menu
+// ---------------------------------------------------------------------------
+
+procedure TFormMain.OnViewProjectSource(Sender: TObject);
 begin
-  MainMenu := TMainMenu.Create(Self);
-
-  // ─── File menu ───
-  MIFile := TMenuItem.Create(MainMenu);
-  MIFile.Caption := '&File';
-  MainMenu.Items.Add(MIFile);
-
-  MIExit := TMenuItem.Create(MainMenu);
-  MIExit.Caption  := 'E&xit';
-  MIExit.ShortCut := ShortCut(VK_F4, [ssAlt]);
-  MIExit.OnClick  := OnFileExit;
-  MIFile.Add(MIExit);
-
-  // ─── Help menu ───
-  MIHelp := TMenuItem.Create(MainMenu);
-  MIHelp.Caption := '&Help';
-  MainMenu.Items.Add(MIHelp);
-
-  MIAbout := TMenuItem.Create(MainMenu);
-  MIAbout.Caption := '&About MiniDelphi...';
-  MIAbout.OnClick := OnAbout;
-  MIHelp.Add(MIAbout);
-
-  Self.Menu := MainMenu;   // <-- this is the line that makes it appear
+  GoToProjectsTab;
+  if Assigned(FProjectTab) then FProjectTab.ViewProjectSource;
 end;
 
+procedure TFormMain.OnViewShowTokens(Sender: TObject);
+begin
+  GoToCompilerTab;
+  OnLex(Sender);
+end;
+
+procedure TFormMain.OnViewShowAST(Sender: TObject);
+begin
+  GoToCompilerTab;
+  OnParse(Sender);
+end;
+
+procedure TFormMain.OnAbout(Sender: TObject);
+begin
+  ShowAboutDialog;
+end;
 
 // =============================================================================
-//  COMPILER TAB
+//  COMPILER TAB  —  toolbar trimmed to Run / Clear
 // =============================================================================
 
 procedure TFormMain.BuildCompilerTab;
@@ -578,7 +671,6 @@ const
 var
   X : Integer;
 begin
-  // Toolbar
   FToolPanel            := TPanel.Create(Self);
   FToolPanel.Parent     := FTabCompiler;
   FToolPanel.Align      := alTop;
@@ -588,49 +680,31 @@ begin
 
   X := PAD;
 
-  FBtnLex := TButton.Create(FToolPanel); FBtnLex.Parent := FToolPanel;
-  FBtnLex.Caption := 'Lex'; FBtnLex.Left := X; FBtnLex.Top := PAD;
-  FBtnLex.Width := BTN_W; FBtnLex.Height := BTN_H; FBtnLex.OnClick := OnLex;
+  FBtnRun          := TButton.Create(FToolPanel);
+  FBtnRun.Parent   := FToolPanel;
+  FBtnRun.Caption  := 'Run';
+  FBtnRun.Left     := X;  FBtnRun.Top := PAD;
+  FBtnRun.Width    := BTN_W;  FBtnRun.Height := BTN_H;
+  FBtnRun.OnClick  := OnRun;
+  FBtnRun.Hint     := 'Run the source above';
+  FBtnRun.ShowHint := True;
   Inc(X, BTN_W + PAD);
 
-  FBtnParse := TButton.Create(FToolPanel); FBtnParse.Parent := FToolPanel;
-  FBtnParse.Caption := 'Parse'; FBtnParse.Left := X; FBtnParse.Top := PAD;
-  FBtnParse.Width := BTN_W; FBtnParse.Height := BTN_H; FBtnParse.OnClick := OnParse;
-  Inc(X, BTN_W + PAD);
-
-  FBtnRun := TButton.Create(FToolPanel); FBtnRun.Parent := FToolPanel;
-  FBtnRun.Caption := 'Run'; FBtnRun.Left := X; FBtnRun.Top := PAD;
-  FBtnRun.Width := BTN_W; FBtnRun.Height := BTN_H; FBtnRun.OnClick := OnRun;
-  Inc(X, BTN_W + PAD);
-
-  FBtnClear := TButton.Create(FToolPanel); FBtnClear.Parent := FToolPanel;
-  FBtnClear.Caption := 'Clear'; FBtnClear.Left := X; FBtnClear.Top := PAD;
-  FBtnClear.Width := BTN_W; FBtnClear.Height := BTN_H; FBtnClear.OnClick := OnClear;
-  Inc(X, BTN_W + PAD);
-
-  FBtnExample         := TButton.Create(FToolPanel);
-  FBtnExample.Parent  := FToolPanel;
-  FBtnExample.Caption := 'Examples v';
-  FBtnExample.Left    := X;  FBtnExample.Top := PAD;
-  FBtnExample.Width   := BTN_W + 20;  FBtnExample.Height := BTN_H;
-  FBtnExample.OnClick := OnExample;
-  Inc(X, BTN_W + 20 + PAD);
-
-  FBtnInsert          := TButton.Create(FToolPanel);
-  FBtnInsert.Parent   := FToolPanel;
-  FBtnInsert.Caption  := 'Insert v';
-  FBtnInsert.Left     := X;  FBtnInsert.Top := PAD;
-  FBtnInsert.Width    := BTN_W;  FBtnInsert.Height := BTN_H;
-  FBtnInsert.OnClick  := OnInsertClick;
-  FBtnInsert.Hint     := 'Insert code snippet (or right-click in the editor)';
-  FBtnInsert.ShowHint := True;
+  FBtnClear         := TButton.Create(FToolPanel);
+  FBtnClear.Parent  := FToolPanel;
+  FBtnClear.Caption := 'Clear';
+  FBtnClear.Left    := X;  FBtnClear.Top := PAD;
+  FBtnClear.Width   := BTN_W;  FBtnClear.Height := BTN_H;
+  FBtnClear.OnClick := OnClear;
+  FBtnClear.Hint    := 'Clear source, output, and tokens';
+  FBtnClear.ShowHint := True;
   Inc(X, BTN_W + PAD * 3);
 
   FStatusLabel            := TLabel.Create(FToolPanel);
   FStatusLabel.Parent     := FToolPanel;
   FStatusLabel.Left       := X;
   FStatusLabel.Top        := PAD + 7;
-  FStatusLabel.Width      := 500;
+  FStatusLabel.Width      := 700;
   FStatusLabel.Font.Color := clSilver;
   FStatusLabel.Caption    := '';
 
@@ -649,7 +723,7 @@ begin
   FLabelTok                 := TLabel.Create(FBottomPanel);
   FLabelTok.Parent          := FBottomPanel;
   FLabelTok.Align           := alTop;
-  FLabelTok.Caption         := ' TOKEN STREAM';
+  FLabelTok.Caption         := ' TOKEN STREAM   (View > Show Tokens)';
   FLabelTok.Font.Style      := [fsBold];
   FLabelTok.Height          := 20;
 
@@ -664,7 +738,7 @@ begin
   FMemoTok.Color            := $001E1E1E;
   FMemoTok.Font.Color       := $0056D364;
 
-  // Left source panel
+  // Left source
   FLeftPanel                := TPanel.Create(Self);
   FLeftPanel.Parent         := FTabCompiler;
   FLeftPanel.Align          := alLeft;
@@ -674,7 +748,7 @@ begin
   FLabelSrc                 := TLabel.Create(FLeftPanel);
   FLabelSrc.Parent          := FLeftPanel;
   FLabelSrc.Align           := alTop;
-  FLabelSrc.Caption         := ' SOURCE CODE  -  right-click for snippets';
+  FLabelSrc.Caption         := ' SOURCE CODE   (right-click for snippets,  F5 to run)';
   FLabelSrc.Font.Style      := [fsBold];
   FLabelSrc.Height          := 20;
 
@@ -693,7 +767,7 @@ begin
   FSplitterMain.Align       := alLeft;
   FSplitterMain.Width       := 4;
 
-  // Right output panel
+  // Right output
   FRightPanel               := TPanel.Create(Self);
   FRightPanel.Parent        := FTabCompiler;
   FRightPanel.Align         := alClient;
@@ -733,7 +807,7 @@ begin
 end;
 
 // =============================================================================
-//  SNIPPET MENU  -  shared by toolbar Insert button and FMemoSrc right-click
+//  SNIPPET MENU (compiler tab — attached to FMemoSrc via right-click)
 // =============================================================================
 
 procedure TFormMain.BuildSnippetMenu;
@@ -746,8 +820,6 @@ begin
 
   for I := 0 to High(SNIPPETS) do
   begin
-    // Separators between control flow / I/O / routines / OOP groups
-    // (matches the layout of the SNIPPETS array above)
     if (I = 8) or (I = 12) or (I = 14) then
     begin
       Sep := TMenuItem.Create(FSnippetMenu);
@@ -762,7 +834,6 @@ begin
     FSnippetMenu.Items.Add(Item);
   end;
 
-  // Wire the same menu up to the editor for right-click access
   FMemoSrc.PopupMenu := FSnippetMenu;
 end;
 
@@ -771,10 +842,8 @@ var
   StartPos : Integer;
 begin
   StartPos := FMemoSrc.SelStart;
-  // SelText replaces any current selection, or inserts at caret if none
-  FMemoSrc.SelText  := Body;
-  // Position caret inside the template where the user is likely to type next
-  FMemoSrc.SelStart := StartPos + Length(Body) - CaretFromEnd;
+  FMemoSrc.SelText   := Body;
+  FMemoSrc.SelStart  := StartPos + Length(Body) - CaretFromEnd;
   FMemoSrc.SelLength := 0;
   FMemoSrc.SetFocus;
 end;
@@ -786,14 +855,6 @@ begin
   Idx := (Sender as TMenuItem).Tag;
   if (Idx >= 0) and (Idx <= High(SNIPPETS)) then
     InsertSnippet(SNIPPETS[Idx].Body, SNIPPETS[Idx].CaretFromEnd);
-end;
-
-procedure TFormMain.OnInsertClick(Sender: TObject);
-var
-  P : TPoint;
-begin
-  P := FBtnInsert.ClientToScreen(Point(0, FBtnInsert.Height));
-  FSnippetMenu.Popup(P.X, P.Y);
 end;
 
 // =============================================================================
@@ -814,7 +875,6 @@ begin
   FCalcOuter.BevelOuter := bvNone;
   FCalcOuter.Color      := $00121212;
 
-  // Hint bar at top
   FCalcHintLabel            := TLabel.Create(FCalcOuter);
   FCalcHintLabel.Parent     := FCalcOuter;
   FCalcHintLabel.Align      := alTop;
@@ -823,7 +883,6 @@ begin
   FCalcHintLabel.Font.Color := $00888888;
   FCalcHintLabel.Font.Size  := 8;
 
-  // Input strip at bottom
   FCalcInputPanel             := TPanel.Create(FCalcOuter);
   FCalcInputPanel.Parent      := FCalcOuter;
   FCalcInputPanel.Align       := alBottom;
@@ -867,7 +926,6 @@ begin
   FCalcBtn.Left               := FCalcInputPanel.Width - 56;
   FCalcBtn.OnClick            := OnCalcBtn;
 
-  // History area
   FCalcHistory                := TMemo.Create(FCalcOuter);
   FCalcHistory.Parent         := FCalcOuter;
   FCalcHistory.Align          := alClient;
@@ -885,40 +943,21 @@ begin
     Add('  -------------------------------------');
     Add('  Type any expression and press Enter.');
     Add('');
-    Add('  Examples to try:');
-    Add('    2 + 3 * 4');
-    Add('    (2 + 3) * 4');
-    Add('    sqrt(2) * power(3, 4) / (7 - 2)');
-    Add('    sin(pi / 6)');
-    Add('    (100 - 32) * 5 / 9');
-    Add('    round(3.14159 * 100) / 100');
-    Add('    ln(exp(1))');
-    Add('    max(17, 42) + min(8, 3)');
-    Add('    abs(-999) mod 7');
-    Add('');
   end;
 end;
 
-// =============================================================================
-//  Calculator -- evaluate expression via the existing pipeline
-// =============================================================================
-
 procedure TFormMain.EvalExpression;
 var
-  Raw     : string;
-  Wrapped : string;
+  Raw, Wrapped, Answer : string;
   Lex     : TLexer;
   Par     : TParser;
   Prog    : TProgramNode;
   Interp  : TInterpreter;
   Output  : TStringList;
-  Answer  : string;
 begin
   Raw := Trim(FCalcEdit.Text);
   if Raw = '' then Exit;
 
-  // Wrap the bare expression so the existing lexer/parser/interpreter
-  // can process it without any changes to those units.
   Wrapped := 'begin writeln(' + Raw + '); end.';
 
   Output := TStringList.Create;
@@ -966,7 +1005,6 @@ begin
     Output.Free;
   end;
 
-  // Scroll history to bottom, then select all text in input for easy replacement
   FCalcHistory.Perform(WM_VSCROLL, SB_BOTTOM, 0);
   FCalcEdit.SelectAll;
 end;
@@ -993,32 +1031,12 @@ begin
 end;
 
 // =============================================================================
-//  COMPILER TAB -- example menu
-// =============================================================================
-
-procedure TFormMain.BuildExamples;
-var
-  I    : Integer;
-  Item : TMenuItem;
-begin
-  FExampleMenu := TPopupMenu.Create(Self);
-  for I := 0 to EXAMPLE_COUNT - 1 do
-  begin
-    Item         := TMenuItem.Create(FExampleMenu);
-    Item.Caption := EXAMPLE_NAMES[I];
-    Item.Tag     := I;
-    Item.OnClick := OnExampleClick;
-    FExampleMenu.Items.Add(Item);
-  end;
-end;
-
-// =============================================================================
-//  COMPILER TAB -- button handlers
+//  STATUS / TOKENS / VALIDATION
 // =============================================================================
 
 procedure TFormMain.SetStatus(const Msg: string; IsError: Boolean);
 begin
-  FStatusLabel.Caption    := Msg;
+  FStatusLabel.Caption := Msg;
   if IsError then FStatusLabel.Font.Color := clRed
   else FStatusLabel.Font.Color := clSilver;
 end;
@@ -1142,25 +1160,17 @@ begin
   AstOut.Free;
 end;
 
-// ---------------------------------------------------------------------------
-//  Highlight a source line red in the editor
-// ---------------------------------------------------------------------------
 procedure TFormMain.HighlightErrorLine(Line: Integer);
 var
-  CharPos : Integer;
-  LineLen : Integer;
-  L       : Integer;
+  CharPos, LineLen, L : Integer;
 begin
   if (Line < 1) or (Line > FMemoSrc.Lines.Count) then Exit;
-  // Move caret to the error line
   CharPos := 0;
   for L := 0 to Line - 2 do
-    CharPos := CharPos + Length(FMemoSrc.Lines[L]) + 2;  // +2 for CRLF
+    CharPos := CharPos + Length(FMemoSrc.Lines[L]) + 2;
   LineLen := Length(FMemoSrc.Lines[Line - 1]);
-  // Select the entire error line
   FMemoSrc.SelStart  := CharPos;
   FMemoSrc.SelLength := LineLen;
-  // Scroll to make it visible
   FMemoSrc.Perform(EM_SCROLLCARET, 0, 0);
   FMemoSrc.SetFocus;
 end;
@@ -1170,9 +1180,6 @@ begin
   FMemoSrc.SelLength := 0;
 end;
 
-// ---------------------------------------------------------------------------
-//  Show validation results in the output panel
-// ---------------------------------------------------------------------------
 procedure TFormMain.ShowValidationResults(V: TValidator;
   ParseErr: string; ParseLine, ParseCol: Integer);
 var
@@ -1184,7 +1191,6 @@ var
 begin
   FMemoOut.Clear;
 
-  // Parse error takes priority
   if ParseErr <> '' then
   begin
     FMemoOut.Lines.Add('+=== PARSE ERROR ==============================');
@@ -1199,7 +1205,6 @@ begin
 
   if V.Issues.Count = 0 then Exit;
 
-  // Show a banner
   ECount := 0;
   WCount := 0;
   for Issue in V.Issues do
@@ -1232,7 +1237,6 @@ begin
     if Issue.Hint <> '' then
       FMemoOut.Lines.Add(Format('|     -> %s', [Issue.Hint]));
 
-    // Remember first error line for highlighting
     if (Issue.Severity = vsError) and (Issue.Line > 0) and (FirstErrorLine < 0) then
       FirstErrorLine := Issue.Line;
   end;
@@ -1240,16 +1244,12 @@ begin
   FMemoOut.Lines.Add('+===============================================');
   FMemoOut.Lines.Add('');
 
-  // Highlight the first error line in the editor
   if FirstErrorLine > 0 then
     HighlightErrorLine(FirstErrorLine)
   else
     ClearHighlight;
 end;
 
-// ---------------------------------------------------------------------------
-//  Run button -- validate then execute
-// ---------------------------------------------------------------------------
 procedure TFormMain.OnRun(Sender: TObject);
 var
   Lex       : TLexer;
@@ -1272,7 +1272,6 @@ begin
   Par       := nil;
   Lex       := nil;
 
-  // -- Step 1: Lex --------------------------------------------------------
   try
     Lex := TLexer.Create(FMemoSrc.Lines.Text);
     Lex.Tokenise;
@@ -1288,7 +1287,6 @@ begin
     end;
   end;
 
-  // -- Step 2: Parse ------------------------------------------------------
   try
     Par  := TParser.Create(Lex.Tokens);
     Prog := Par.Parse;
@@ -1312,7 +1310,6 @@ begin
     end;
   end;
 
-  // -- Step 3: Validate ---------------------------------------------------
   Valid := TValidator.Create(Prog, FMemoSrc.Lines.Text);
   try
     Valid.Validate;
@@ -1325,7 +1322,6 @@ begin
       Exit;
     end;
 
-    // Warnings only -- show a short notice and continue
     if Valid.HasWarnings then
       FMemoOut.Lines.Add('Warnings noted -- running anyway...');
 
@@ -1333,13 +1329,13 @@ begin
     Valid.Free;
   end;
 
-  // -- Step 4: Run --------------------------------------------------------
   try
     try
       Interp := TInterpreter.Create(Prog, FMemoOut.Lines);
       try
         Interp.InputLine  := FEditInput.Text;
         Interp.SourceText := FMemoSrc.Lines.Text;
+        Interp.AllowShell := False;
         Interp.Run;
       finally
         Interp.Free;
@@ -1363,6 +1359,7 @@ end;
 
 procedure TFormMain.OnExampleClick(Sender: TObject);
 begin
+  GoToCompilerTab;
   FMemoSrc.Lines.Text := EXAMPLE_CODE[(Sender as TMenuItem).Tag];
   FMemoOut.Clear;
   FMemoTok.Clear;
@@ -1374,30 +1371,5 @@ begin
   FMemoSrc.Clear;  FMemoOut.Clear;  FMemoTok.Clear;
   SetStatus('Cleared.');
 end;
-
-procedure TFormMain.OnExample(Sender: TObject);
-var
-  P : TPoint;
-begin
-  P := FBtnExample.ClientToScreen(Point(0, FBtnExample.Height));
-  FExampleMenu.Popup(P.X, P.Y);
-end;
-
-// Local helper to avoid ambiguity with System.Math.IfThen
-function IfThen(B: Boolean; const T, F: string): string; overload;
-begin
-  if B then Result := T else Result := F;
-end;
-
-function IfThen(B: Boolean; T, F: TColor): TColor; overload;
-begin
-  if B then Result := T else Result := F;
-end;
-
-procedure TFormMain.OnAbout(Sender: TObject);
-begin
-  ShowAboutDialog;
-end;
-
 
 end.

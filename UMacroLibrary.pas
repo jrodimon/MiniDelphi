@@ -1,4 +1,4 @@
-﻿unit UMacroLibrary;
+unit UMacroLibrary;
 
 // =============================================================================
 // MiniDelphi Toy Compiler & Learning IDE

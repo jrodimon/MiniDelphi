@@ -35,7 +35,7 @@ uses
   Vcl.Controls, Vcl.Forms, Vcl.StdCtrls, Vcl.ExtCtrls,
   Vcl.Graphics, Vcl.ComCtrls, Vcl.Dialogs, Vcl.Menus,
   System.UITypes,
-  ULexer, UParser, UAST, UInterpreter, UMacroLibrary;
+  ULexer, UParser, UAST, UInterpreter, UMacroLibrary,System.Math,Winapi.ShellAPI;
 
 type
   // ---------------------------------------------------------------------------
