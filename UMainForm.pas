@@ -9,7 +9,7 @@ unit UMainForm;
 // =============================================================================
 //  UMainForm.pas  -  VCL front-end for the MiniDelphi Toy Compiler
 //
-//  Five tabs:   Compiler | Calculator | Learn Delphi | Projects | Macros
+//  Six tabs:   Compiler | Calculator | Learn Delphi | Projects | Forms | Macros
 //
 //  Main menu:
 //      File  → New File (Ctrl+N)
@@ -21,23 +21,19 @@ unit UMainForm;
 //              Open Project...
 //              Close Project
 //              ────────────
+//              New Form...
+//              Open Form...
+//              ────────────
 //              Exit (Alt+F4)
 //
 //      View  → View Project Source (Ctrl+F11)
 //              ────────────
-//              Show Tokens (Lex)
-//              Show AST (Parse)
+//              Show Tokens
+//              Show AST
 //
 //      Help  → Examples →   [8 example programs]
 //              ────────────
 //              About MiniDelphi...
-//
-//  File menu actions auto-switch to the Projects tab.
-//  View → Show Tokens/AST and Help → Examples auto-switch to Compiler tab.
-//
-//  Compiler tab toolbar: Run / Clear only
-//  Projects tab toolbar: Run / Stop only
-//  Snippet insertion is via right-click in either editor.
 // =============================================================================
 
 interface
@@ -49,7 +45,7 @@ uses
   Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.ExtCtrls,
   Vcl.Menus, Vcl.ComCtrls, Vcl.Buttons, Vcl.Graphics,
   ULexer, UParser, UAST, UInterpreter, UValidator,
-  ULearnTab, UProjectTab, UMacroTab,
+  ULearnTab, UProjectTab, UMacroTab, UFormBuilderTab,
   UExampleProjects, UAboutDialog;
 
 type
@@ -69,10 +65,12 @@ type
     FLearnTab       : TLearnTab;
     FTabProject     : TTabSheet;
     FProjectTab     : TProjectTab;
+    FTabForms       : TTabSheet;
+    FFormBuilderTab : TFormBuilderTab;
     FTabMacro       : TTabSheet;
     FMacroTab       : TMacroTab;
 
-    // Compiler tab — trimmed toolbar
+    // Compiler tab
     FToolPanel      : TPanel;
     FBtnRun         : TButton;
     FBtnClear       : TButton;
@@ -106,7 +104,7 @@ type
     FCalcBtn        : TButton;
     FCalcHintLabel  : TLabel;
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    // Helpers
     procedure BuildMainMenu;
     procedure BuildCompilerTab;
     procedure BuildCalcTab;
@@ -121,6 +119,10 @@ type
     procedure EvalExpression;
     procedure GoToProjectsTab;
     procedure GoToCompilerTab;
+    procedure GoToFormsTab;
+
+    // Notification from TProjectTab when the open project changes
+    procedure OnProjectChangedHandler(Sender: TObject);
 
     // Compiler tab handlers
     procedure OnLex            (Sender: TObject);
@@ -138,6 +140,8 @@ type
     procedure OnMenuNewProject   (Sender: TObject);
     procedure OnMenuOpenProject  (Sender: TObject);
     procedure OnMenuCloseProject (Sender: TObject);
+    procedure OnMenuNewForm      (Sender: TObject);
+    procedure OnMenuOpenForm     (Sender: TObject);
     procedure OnFileExit         (Sender: TObject);
 
     // View menu
@@ -465,6 +469,10 @@ begin
   FTabProject.PageControl  := FPages;
   FTabProject.Caption      := '  Projects  ';
 
+  FTabForms                := TTabSheet.Create(FPages);
+  FTabForms.PageControl    := FPages;
+  FTabForms.Caption        := '  Forms  ';
+
   FTabMacro                := TTabSheet.Create(FPages);
   FTabMacro.PageControl    := FPages;
   FTabMacro.Caption        := '  Macros  ';
@@ -472,12 +480,29 @@ begin
   BuildCompilerTab;
   BuildCalcTab;
   BuildSnippetMenu;
-  FLearnTab    := TLearnTab.Create(FTabLearn);
-  FProjectTab  := TProjectTab.Create(FTabProject);
-  FMacroTab    := TMacroTab.Create(FTabMacro);
+  FLearnTab       := TLearnTab.Create(FTabLearn);
+  FProjectTab     := TProjectTab.Create(FTabProject);
+  FFormBuilderTab := TFormBuilderTab.Create(FTabForms);
+  FMacroTab       := TMacroTab.Create(FTabMacro);
+
+  // Wire project lifecycle → form builder folder tracking
+  FProjectTab.OnProjectChanged := OnProjectChangedHandler;
 
   FMemoSrc.Lines.Text := EXAMPLE_CODE[0];
   SetStatus('Ready -- right-click in the editor for snippets, or pick Help > Examples.');
+end;
+
+// =============================================================================
+//  Project → Form Builder folder sync
+// =============================================================================
+
+procedure TFormMain.OnProjectChangedHandler(Sender: TObject);
+begin
+  if not Assigned(FFormBuilderTab) then Exit;
+  if FProjectTab.HasProject then
+    FFormBuilderTab.SetProjectFolder(ExtractFilePath(FProjectTab.ProjectFile))
+  else
+    FFormBuilderTab.SetProjectFolder('');
 end;
 
 // =============================================================================
@@ -531,6 +556,9 @@ begin
   MakeItem(MIFile, 'Open Pr&oject...',  OnMenuOpenProject);
   MakeItem(MIFile, '&Close Project',    OnMenuCloseProject);
   MakeSep (MIFile);
+  MakeItem(MIFile, 'N&ew Form...',      OnMenuNewForm);
+  MakeItem(MIFile, 'Op&en Form...',     OnMenuOpenForm);
+  MakeSep (MIFile);
   MakeItem(MIFile, 'E&xit',             OnFileExit,
            ShortCut(VK_F4, [ssAlt]));
 
@@ -581,8 +609,15 @@ begin
     FPages.ActivePage := FTabCompiler;
 end;
 
+procedure TFormMain.GoToFormsTab;
+begin
+  if FPages.ActivePage <> FTabForms then
+    FPages.ActivePage := FTabForms;
+end;
+
 // ---------------------------------------------------------------------------
-//  File menu — all delegate to TProjectTab
+//  File menu — Project actions delegate to TProjectTab, Form actions to
+//  TFormBuilderTab.
 // ---------------------------------------------------------------------------
 
 procedure TFormMain.OnMenuNewFile(Sender: TObject);
@@ -599,14 +634,29 @@ end;
 
 procedure TFormMain.OnMenuSave(Sender: TObject);
 begin
-  GoToProjectsTab;
-  if Assigned(FProjectTab) then FProjectTab.DoSave;
+  // Save targets the active tab if it's Projects or Forms, otherwise Projects
+  if FPages.ActivePage = FTabForms then
+  begin
+    if Assigned(FFormBuilderTab) then FFormBuilderTab.DoSave;
+  end
+  else
+  begin
+    GoToProjectsTab;
+    if Assigned(FProjectTab) then FProjectTab.DoSave;
+  end;
 end;
 
 procedure TFormMain.OnMenuSaveAs(Sender: TObject);
 begin
-  GoToProjectsTab;
-  if Assigned(FProjectTab) then FProjectTab.DoSaveAs;
+  if FPages.ActivePage = FTabForms then
+  begin
+    if Assigned(FFormBuilderTab) then FFormBuilderTab.DoSaveAs;
+  end
+  else
+  begin
+    GoToProjectsTab;
+    if Assigned(FProjectTab) then FProjectTab.DoSaveAs;
+  end;
 end;
 
 procedure TFormMain.OnMenuNewProject(Sender: TObject);
@@ -625,6 +675,18 @@ procedure TFormMain.OnMenuCloseProject(Sender: TObject);
 begin
   GoToProjectsTab;
   if Assigned(FProjectTab) then FProjectTab.DoCloseProject;
+end;
+
+procedure TFormMain.OnMenuNewForm(Sender: TObject);
+begin
+  GoToFormsTab;
+  if Assigned(FFormBuilderTab) then FFormBuilderTab.DoNew;
+end;
+
+procedure TFormMain.OnMenuOpenForm(Sender: TObject);
+begin
+  GoToFormsTab;
+  if Assigned(FFormBuilderTab) then FFormBuilderTab.DoOpen;
 end;
 
 procedure TFormMain.OnFileExit(Sender: TObject);
@@ -660,7 +722,7 @@ begin
 end;
 
 // =============================================================================
-//  COMPILER TAB  —  toolbar trimmed to Run / Clear
+//  COMPILER TAB
 // =============================================================================
 
 procedure TFormMain.BuildCompilerTab;
@@ -690,13 +752,13 @@ begin
   FBtnRun.ShowHint := True;
   Inc(X, BTN_W + PAD);
 
-  FBtnClear         := TButton.Create(FToolPanel);
-  FBtnClear.Parent  := FToolPanel;
-  FBtnClear.Caption := 'Clear';
-  FBtnClear.Left    := X;  FBtnClear.Top := PAD;
-  FBtnClear.Width   := BTN_W;  FBtnClear.Height := BTN_H;
-  FBtnClear.OnClick := OnClear;
-  FBtnClear.Hint    := 'Clear source, output, and tokens';
+  FBtnClear          := TButton.Create(FToolPanel);
+  FBtnClear.Parent   := FToolPanel;
+  FBtnClear.Caption  := 'Clear';
+  FBtnClear.Left     := X;  FBtnClear.Top := PAD;
+  FBtnClear.Width    := BTN_W;  FBtnClear.Height := BTN_H;
+  FBtnClear.OnClick  := OnClear;
+  FBtnClear.Hint     := 'Clear source, output, and tokens';
   FBtnClear.ShowHint := True;
   Inc(X, BTN_W + PAD * 3);
 
@@ -708,7 +770,6 @@ begin
   FStatusLabel.Font.Color := clSilver;
   FStatusLabel.Caption    := '';
 
-  // Bottom token pane
   FBottomPanel              := TPanel.Create(Self);
   FBottomPanel.Parent       := FTabCompiler;
   FBottomPanel.Align        := alBottom;
@@ -738,7 +799,6 @@ begin
   FMemoTok.Color            := $001E1E1E;
   FMemoTok.Font.Color       := $0056D364;
 
-  // Left source
   FLeftPanel                := TPanel.Create(Self);
   FLeftPanel.Parent         := FTabCompiler;
   FLeftPanel.Align          := alLeft;
@@ -767,7 +827,6 @@ begin
   FSplitterMain.Align       := alLeft;
   FSplitterMain.Width       := 4;
 
-  // Right output
   FRightPanel               := TPanel.Create(Self);
   FRightPanel.Parent        := FTabCompiler;
   FRightPanel.Align         := alClient;
@@ -807,7 +866,7 @@ begin
 end;
 
 // =============================================================================
-//  SNIPPET MENU (compiler tab — attached to FMemoSrc via right-click)
+//  SNIPPET MENU
 // =============================================================================
 
 procedure TFormMain.BuildSnippetMenu;

@@ -155,6 +155,10 @@ type
 
     FInterp         : TInterpreter;
 
+    // Optional callback fired when a project is opened, created, or closed.
+    // The main form uses this to push the project folder to the Forms tab.
+    FOnProjectChanged : TNotifyEvent;
+
     // ── Helpers ──────────────────────────────────────────────────────────────
     procedure BuildUI;
     procedure BuildTree;
@@ -224,6 +228,10 @@ type
     property CurrentFile : string  read FCurrentFile;
     property Modified    : Boolean read FModified;
     property HasProject  : Boolean read IsProjectOpen;
+    property ProjectFile : string  read FProjectFile;
+    property ProjectName : string  read FProjectName;
+    property OnProjectChanged : TNotifyEvent read FOnProjectChanged
+                                             write FOnProjectChanged;
   end;
 
 // =============================================================================
@@ -1566,6 +1574,8 @@ begin
   UpdateTitleBar;
   UpdateEditorLabel;
 
+  if Assigned(FOnProjectChanged) then FOnProjectChanged(Self);
+
   MessageDlg('Project "' + ProjName + '" created.' + sLineBreak +
              sLineBreak +
              'Edit the project source on the right.' + sLineBreak +
@@ -1587,6 +1597,7 @@ begin
     LoadProjectFromIni(Dlg.FileName);
     BuildTree;
     LoadProjectSourceIntoEditor;
+    if Assigned(FOnProjectChanged) then FOnProjectChanged(Self);
   finally
     Dlg.Free;
   end;
@@ -1612,6 +1623,7 @@ begin
   UpdateEditorLabel;
   FOutput.Clear;
   FOutput.Lines.Add('Project closed.');
+  if Assigned(FOnProjectChanged) then FOnProjectChanged(Self);
 end;
 
 procedure TProjectTab.DoAddExistingFile;

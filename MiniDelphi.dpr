@@ -35,7 +35,9 @@ uses
   UObjectRuntime in 'UObjectRuntime.pas',
   UValidator in 'UValidator.pas',
   UGraphics in 'UGraphics.pas',
-  UAboutDialog in 'UAboutDialog.pas';
+  UAboutDialog in 'UAboutDialog.pas',
+  UFormBuilderTab in 'UFormBuilderTab.pas',
+  UFormDef in 'UFormDef.pas';
 
 {$R *.res}
 

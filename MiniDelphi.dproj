@@ -151,6 +151,8 @@
         <DCCReference Include="UValidator.pas"/>
         <DCCReference Include="UGraphics.pas"/>
         <DCCReference Include="UAboutDialog.pas"/>
+        <DCCReference Include="UFormBuilderTab.pas"/>
+        <DCCReference Include="UFormDef.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
