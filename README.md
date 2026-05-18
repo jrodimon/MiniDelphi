@@ -1,4 +1,4 @@
-# MiniDelphi — A Toy Compiler & Learning IDE
+# MiniDelphi — An Interpeter & Learning IDE
 
 > *Copyright © 2026 Nomidor Software, LLC. All rights reserved.*
 
@@ -9,6 +9,9 @@
 MiniDelphi is a complete **interpreted programming language and learning IDE** built entirely in Embarcadero Delphi 13 (VCL, Win64). It implements a substantial subset of the Pascal/Delphi language and runs programs instantly — no compilation step, no external tools, no setup.
 
 The goal is simple: give someone who has never programmed before a friendly, immediate, and visually rewarding environment to learn the fundamentals of structured programming, object-oriented design, and algorithm thinking — all in a language that looks and feels like real Delphi.
+
+<img width="1126" height="753" alt="Image" src="https://github.com/user-attachments/assets/2eece9f3-de09-469e-a2fc-eb5d8a491834" />
+
 
 ---
 
