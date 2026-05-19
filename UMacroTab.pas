@@ -1,4 +1,4 @@
-﻿unit UMacroTab;
+unit UMacroTab;
 
 // =============================================================================
 // MiniDelphi Toy Compiler & Learning IDE
@@ -29,13 +29,13 @@
 interface
 
 uses
-  Winapi.Windows, Winapi.Messages,
+  Winapi.Windows, Winapi.Messages, Winapi.ShellAPI,
   System.SysUtils, System.Classes, System.IOUtils, System.IniFiles,
-  System.Generics.Collections,
+  System.Math, System.Generics.Collections,
   Vcl.Controls, Vcl.Forms, Vcl.StdCtrls, Vcl.ExtCtrls,
   Vcl.Graphics, Vcl.ComCtrls, Vcl.Dialogs, Vcl.Menus,
   System.UITypes,
-  ULexer, UParser, UAST, UInterpreter, UMacroLibrary,System.Math,Winapi.ShellAPI;
+  ULexer, UParser, UAST, UInterpreter, UMacroLibrary, UTheme;
 
 type
   // ---------------------------------------------------------------------------
@@ -89,6 +89,7 @@ type
 
     // ── Helpers ──────────────────────────────────────────────────────────
     procedure BuildUI;
+    procedure ApplyTheme;
     procedure EnsureMacroFolder;
     procedure LoadMacros;
     procedure BuildTree;
@@ -224,13 +225,35 @@ begin
 
   FLblStatus.Caption := Format('  %d macros loaded from %s',
                                 [FMacros.Count, FMacroDir]);
+
+  ApplyTheme;
+  Theme.Subscribe(ApplyTheme);
 end;
 
 destructor TMacroTab.Destroy;
 begin
+  Theme.Unsubscribe(ApplyTheme);
   SaveTrustedFlags;
   FMacros.Free;
   inherited;
+end;
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  THEME
+// ═══════════════════════════════════════════════════════════════════════════
+
+procedure TMacroTab.ApplyTheme;
+begin
+  if Assigned(FOuter)      then Theme.ApplyPanelBg(FOuter);
+  if Assigned(FToolBar)    then Theme.ApplyPanelToolbar(FToolBar);
+  if Assigned(FLblStatus)  then Theme.ApplyLabel(FLblStatus, 'normal');
+  if Assigned(FLeftPanel)  then Theme.ApplyPanelAlt(FLeftPanel);
+  if Assigned(FTree)       then Theme.ApplyTreeView(FTree);
+  if Assigned(FRightPanel) then Theme.ApplyPanelBg(FRightPanel);
+  if Assigned(FLblDesc)    then Theme.ApplyLabel(FLblDesc, 'accent');
+  if Assigned(FEditor)     then Theme.ApplyMemoInput(FEditor);
+  if Assigned(FLblOut)     then Theme.ApplyLabel(FLblOut, 'accent');
+  if Assigned(FOutput)     then Theme.ApplyMemoOutput(FOutput);
 end;
 
 // ---------------------------------------------------------------------------
@@ -753,12 +776,6 @@ end;
 procedure TMacroTab.OnEditorChange(Sender: TObject);
 begin
   FModified := True;
-end;
-
-// Local helper used by EnsureMacroFolder
-function Min(A, B: Integer): Integer;
-begin
-  if A < B then Result := A else Result := B;
 end;
 
 end.

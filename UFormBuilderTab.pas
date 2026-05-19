@@ -1,4 +1,4 @@
-﻿unit UFormBuilderTab;
+unit UFormBuilderTab;
 
 // =============================================================================
 // Copyright (c) 2026 Nomidor Software, LLC.
@@ -53,7 +53,7 @@ uses
   Vcl.Controls, Vcl.Forms, Vcl.StdCtrls, Vcl.ExtCtrls,
   Vcl.Graphics, Vcl.Grids, Vcl.ComCtrls, Vcl.Dialogs, Vcl.Menus,
   System.UITypes,
-  UFormDef;
+  UFormDef, UTheme;
 
 const
   MDFRM_FILTER = 'MiniDelphi Form|*.mdfrm|All Files|*.*';
@@ -129,6 +129,7 @@ type
     FCtrlMap      : TDictionary<TWinControl, TControlDef>;
 
     procedure BuildUI;
+    procedure ApplyTheme;
     procedure RefreshFromModel;       // rebuild the design surface from FFormDef
     procedure RefreshInspector;
     procedure RefreshFileList;
@@ -227,14 +228,48 @@ begin
   BuildUI;
   RefreshFromModel;
   UpdateStatus;
+
+  ApplyTheme;
+  Theme.Subscribe(ApplyTheme);
 end;
 
 destructor TFormBuilderTab.Destroy;
 begin
+  Theme.Unsubscribe(ApplyTheme);
   FCtrlMap.Free;
   FSelection.Free;
   FFormDef.Free;
   inherited;
+end;
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  THEME
+//
+//  Note: the design surface (FDesignSurface) is intentionally NOT themed.
+//  It's meant to look like a real Windows form regardless of the IDE's
+//  theme — i.e., always clBtnFace with raised bevel. The canvas around
+//  it does follow the theme.
+// ═══════════════════════════════════════════════════════════════════════════
+
+procedure TFormBuilderTab.ApplyTheme;
+begin
+  if Assigned(FOuter)         then Theme.ApplyPanelBg(FOuter);
+  if Assigned(FToolbar)       then Theme.ApplyPanelToolbar(FToolbar);
+  if Assigned(FPalette)       then Theme.ApplyPanelToolbar(FPalette);
+  if Assigned(FLabelStatus)   then Theme.ApplyLabel(FLabelStatus, 'normal');
+
+  if Assigned(FLeftPanel)     then Theme.ApplyPanelAlt(FLeftPanel);
+  if Assigned(FLabelFiles)    then Theme.ApplyLabel(FLabelFiles, 'header');
+  if Assigned(FFileList)      then Theme.ApplyListBox(FFileList);
+
+  if Assigned(FRightPanel)    then Theme.ApplyPanelAlt(FRightPanel);
+  if Assigned(FLabelInsp)     then Theme.ApplyLabel(FLabelInsp, 'header');
+  if Assigned(FInspector)     then Theme.ApplyStringGrid(FInspector);
+
+  if Assigned(FCanvasPanel)   then Theme.ApplyPanelBg(FCanvasPanel);
+  if Assigned(FCanvasInfo)    then Theme.ApplyLabel(FCanvasInfo, 'accent');
+
+  // FDesignSurface stays in light "form" colors regardless of theme
 end;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -297,7 +332,7 @@ begin
   FLabelStatus.Left       := X + PAD * 2;
   FLabelStatus.Top        := PAD + 6;
   FLabelStatus.Width      := 600;
-  FLabelStatus.Font.Color := clSilver;
+  FLabelStatus.Font.Color := clWhite;
 
   // ── Palette ────────────────────────────────────────────────────────────
   FPalette            := TPanel.Create(FOuter);
@@ -357,13 +392,15 @@ begin
   FLabelFiles.Height     := 22;
   FLabelFiles.Caption    := '  Forms in Project';
   FLabelFiles.Font.Style := [fsBold];
-  FLabelFiles.Font.Color := clSilver;
+  FLabelFiles.Font.Color := clWhite;
 
   FFileList              := TListBox.Create(FLeftPanel);
   FFileList.Parent       := FLeftPanel;
   FFileList.Align        := alClient;
-  FFileList.Color        := DARK;
-  FFileList.Font.Color   := clSilver;
+  FFileList.Color        := clWindow;
+  FFileList.Font.Color   := clBlack;
+  FFileList.Font.Name    := 'Segoe UI';
+  FFileList.Font.Size    := 9;
   FFileList.OnDblClick   := OnFileListDblClick;
 
   FSplitterL := TSplitter.Create(FOuter);
@@ -385,7 +422,7 @@ begin
   FLabelInsp.Height     := 22;
   FLabelInsp.Caption    := '  Object Inspector';
   FLabelInsp.Font.Style := [fsBold];
-  FLabelInsp.Font.Color := clSilver;
+  FLabelInsp.Font.Color := clWhite;
 
   FInspector                  := TStringGrid.Create(FRightPanel);
   FInspector.Parent           := FRightPanel;
@@ -402,8 +439,11 @@ begin
   FInspector.Cells[1, 0] := 'Value';
   FInspector.ColWidths[0] := 100;
   FInspector.ColWidths[1] := 140;
-  FInspector.Color        := DARK;
-  FInspector.Font.Color   := clSilver;
+  FInspector.Color        := clWindow;
+  FInspector.Font.Color   := clBlack;
+  FInspector.Font.Name    := 'Segoe UI';
+  FInspector.Font.Size    := 9;
+  FInspector.FixedColor   := clBtnFace;
   FInspector.OnSetEditText := OnInspectorSetEditText;
 
   FSplitterR := TSplitter.Create(FOuter);

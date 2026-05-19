@@ -64,7 +64,7 @@ uses
   Vcl.Graphics, Vcl.ComCtrls, Vcl.Buttons, Vcl.Menus, Vcl.Dialogs,
   System.UITypes,
   ULexer, UParser, UAST, UInterpreter,
-  UExampleProjects;
+  UExampleProjects, UTheme;
 
 type
   // ---------------------------------------------------------------------------
@@ -162,6 +162,7 @@ type
     // ── Helpers ──────────────────────────────────────────────────────────────
     procedure BuildUI;
     procedure BuildTree;
+    procedure ApplyTheme;
     procedure BuildSnippetMenu;
     procedure BuildProjectFileMenu;
     procedure RefreshRecentNode;
@@ -490,10 +491,14 @@ begin
 
   FEditor.Lines.Text := NEW_SOURCE;
   FModified          := False;
+
+  ApplyTheme;
+  Theme.Subscribe(ApplyTheme);
 end;
 
 destructor TProjectTab.Destroy;
 begin
+  Theme.Unsubscribe(ApplyTheme);
   FProjectFiles.Free;
   FExamples.Free;
   FRecent.Free;
@@ -740,6 +745,25 @@ begin
   FProjectFiles.Delete(I);
   SaveProjectIni;
   RefreshProjectNode;
+end;
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  THEME
+// ═══════════════════════════════════════════════════════════════════════════
+
+procedure TProjectTab.ApplyTheme;
+begin
+  if Assigned(FOuterPanel)  then Theme.ApplyPanelBg(FOuterPanel);
+  if Assigned(FToolBar)     then Theme.ApplyPanelToolbar(FToolBar);
+  if Assigned(FLabelFile)   then Theme.ApplyLabel(FLabelFile, 'normal');
+  if Assigned(FLeftPanel)   then Theme.ApplyPanelAlt(FLeftPanel);
+  if Assigned(FLabelTree)   then Theme.ApplyLabel(FLabelTree, 'header');
+  if Assigned(FTree)        then Theme.ApplyTreeView(FTree);
+  if Assigned(FRightPanel)  then Theme.ApplyPanelBg(FRightPanel);
+  if Assigned(FEditorLabel) then Theme.ApplyLabel(FEditorLabel, 'accent');
+  if Assigned(FEditor)      then Theme.ApplyMemoInput(FEditor);
+  if Assigned(FOutputLabel) then Theme.ApplyLabel(FOutputLabel, 'accent');
+  if Assigned(FOutput)      then Theme.ApplyMemoOutput(FOutput);
 end;
 
 // ═══════════════════════════════════════════════════════════════════════════

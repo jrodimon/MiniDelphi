@@ -9,31 +9,7 @@ unit UMainForm;
 // =============================================================================
 //  UMainForm.pas  -  VCL front-end for the MiniDelphi Toy Compiler
 //
-//  Six tabs:   Compiler | Calculator | Learn Delphi | Projects | Forms | Macros
-//
-//  Main menu:
-//      File  → New File (Ctrl+N)
-//              Open File... (Ctrl+O)
-//              Save (Ctrl+S)
-//              Save As...
-//              ────────────
-//              New Project...
-//              Open Project...
-//              Close Project
-//              ────────────
-//              New Form...
-//              Open Form...
-//              ────────────
-//              Exit (Alt+F4)
-//
-//      View  → View Project Source (Ctrl+F11)
-//              ────────────
-//              Show Tokens
-//              Show AST
-//
-//      Help  → Examples →   [8 example programs]
-//              ────────────
-//              About MiniDelphi...
+//  Themed via UTheme — see View → Preferences... for theme selection.
 // =============================================================================
 
 interface
@@ -46,7 +22,7 @@ uses
   Vcl.Menus, Vcl.ComCtrls, Vcl.Buttons, Vcl.Graphics,
   ULexer, UParser, UAST, UInterpreter, UValidator,
   ULearnTab, UProjectTab, UMacroTab, UFormBuilderTab,
-  UExampleProjects, UAboutDialog;
+  UExampleProjects, UAboutDialog, UTheme, UPreferencesDialog;
 
 type
   TSnippet = record
@@ -121,7 +97,10 @@ type
     procedure GoToCompilerTab;
     procedure GoToFormsTab;
 
-    // Notification from TProjectTab when the open project changes
+    // Theme integration
+    procedure ApplyTheme;
+    procedure WMSettingChange(var Msg: TMessage); message WM_SETTINGCHANGE;
+
     procedure OnProjectChangedHandler(Sender: TObject);
 
     // Compiler tab handlers
@@ -132,7 +111,7 @@ type
     procedure OnExampleClick   (Sender: TObject);
     procedure OnSnippetClick   (Sender: TObject);
 
-    // File menu handlers
+    // File menu
     procedure OnMenuNewFile      (Sender: TObject);
     procedure OnMenuOpenFile     (Sender: TObject);
     procedure OnMenuSave         (Sender: TObject);
@@ -148,6 +127,7 @@ type
     procedure OnViewProjectSource(Sender: TObject);
     procedure OnViewShowTokens   (Sender: TObject);
     procedure OnViewShowAST      (Sender: TObject);
+    procedure OnViewPreferences  (Sender: TObject);
 
     // Help menu
     procedure OnAbout            (Sender: TObject);
@@ -159,6 +139,7 @@ type
                                 Shift: TShiftState);
   public
     constructor Create(AOwner: TComponent); override;
+    destructor  Destroy; override;
   end;
 
 var
@@ -434,12 +415,16 @@ const
   );
 
 // =============================================================================
-//  Constructor
+//  Constructor / Destructor
 // =============================================================================
 
 constructor TFormMain.Create(AOwner: TComponent);
 begin
   inherited CreateNew(AOwner);
+
+  // Load theme preference from disk before building anything
+  Theme.Load;
+
   Caption   := 'MiniDelphi Toy Compiler';
   Width     := 1100;
   Height    := 750;
@@ -485,11 +470,77 @@ begin
   FFormBuilderTab := TFormBuilderTab.Create(FTabForms);
   FMacroTab       := TMacroTab.Create(FTabMacro);
 
-  // Wire project lifecycle → form builder folder tracking
   FProjectTab.OnProjectChanged := OnProjectChangedHandler;
+
+  // Apply current theme to our own controls
+  ApplyTheme;
+  Theme.Subscribe(ApplyTheme);
 
   FMemoSrc.Lines.Text := EXAMPLE_CODE[0];
   SetStatus('Ready -- right-click in the editor for snippets, or pick Help > Examples.');
+end;
+
+destructor TFormMain.Destroy;
+begin
+  Theme.Unsubscribe(ApplyTheme);
+  inherited;
+end;
+
+// =============================================================================
+//  Windows theme-change message
+// =============================================================================
+
+procedure TFormMain.WMSettingChange(var Msg: TMessage);
+var
+  S : string;
+begin
+  inherited;
+  if Msg.LParam <> 0 then
+  begin
+    S := PChar(Msg.LParam);
+    if SameText(S, 'ImmersiveColorSet') then
+      Theme.ReevaluateFromWindows;
+  end;
+end;
+
+// =============================================================================
+//  ApplyTheme — re-skin our own widgets to match the current theme
+// =============================================================================
+
+procedure TFormMain.ApplyTheme;
+begin
+  Theme.ApplyForm(Self);
+
+  // Compiler tab
+  if Assigned(FToolPanel)   then Theme.ApplyPanelToolbar(FToolPanel);
+  if Assigned(FStatusLabel) then Theme.ApplyLabel(FStatusLabel, 'normal');
+  if Assigned(FBottomPanel) then Theme.ApplyPanelBg(FBottomPanel);
+  if Assigned(FLabelTok)    then Theme.ApplyLabel(FLabelTok, 'header');
+  if Assigned(FMemoTok)     then
+  begin
+    FMemoTok.Color := Theme.Colors.BgOutput;
+    FMemoTok.Font.Color := Theme.Colors.FgOutput;
+  end;
+  if Assigned(FLeftPanel)   then Theme.ApplyPanelBg(FLeftPanel);
+  if Assigned(FLabelSrc)    then Theme.ApplyLabel(FLabelSrc, 'header');
+  if Assigned(FMemoSrc)     then Theme.ApplyMemoInput(FMemoSrc);
+  if Assigned(FRightPanel)  then Theme.ApplyPanelBg(FRightPanel);
+  if Assigned(FLabelOut)    then Theme.ApplyLabel(FLabelOut, 'header');
+  if Assigned(FMemoOut)     then Theme.ApplyMemoInput(FMemoOut);
+  if Assigned(FLabelInput)  then Theme.ApplyLabel(FLabelInput, 'normal');
+  if Assigned(FEditInput)   then Theme.ApplyEditInput(FEditInput);
+
+  // Calculator tab
+  if Assigned(FCalcOuter)      then Theme.ApplyPanelBg(FCalcOuter);
+  if Assigned(FCalcHintLabel)  then Theme.ApplyLabel(FCalcHintLabel, 'dim');
+  if Assigned(FCalcInputPanel) then Theme.ApplyPanelAlt(FCalcInputPanel);
+  if Assigned(FCalcLabel)      then Theme.ApplyLabel(FCalcLabel, 'accent');
+  if Assigned(FCalcEdit) then
+  begin
+    FCalcEdit.Color := Theme.Colors.BgPanelAlt;
+    FCalcEdit.Font.Color := Theme.Colors.FgInput;
+  end;
+  if Assigned(FCalcHistory) then Theme.ApplyMemoInput(FCalcHistory);
 end;
 
 // =============================================================================
@@ -572,6 +623,8 @@ begin
   MakeSep (MIView);
   MakeItem(MIView, 'Show &Tokens',         OnViewShowTokens);
   MakeItem(MIView, 'Show &AST',            OnViewShowAST);
+  MakeSep (MIView);
+  MakeItem(MIView, 'P&references...',      OnViewPreferences);
 
   // ─── Help ──────────────────────────────────────────────────────────────
   MIHelp := TMenuItem.Create(MM);
@@ -616,8 +669,7 @@ begin
 end;
 
 // ---------------------------------------------------------------------------
-//  File menu — Project actions delegate to TProjectTab, Form actions to
-//  TFormBuilderTab.
+//  File menu handlers
 // ---------------------------------------------------------------------------
 
 procedure TFormMain.OnMenuNewFile(Sender: TObject);
@@ -634,7 +686,6 @@ end;
 
 procedure TFormMain.OnMenuSave(Sender: TObject);
 begin
-  // Save targets the active tab if it's Projects or Forms, otherwise Projects
   if FPages.ActivePage = FTabForms then
   begin
     if Assigned(FFormBuilderTab) then FFormBuilderTab.DoSave;
@@ -695,7 +746,7 @@ begin
 end;
 
 // ---------------------------------------------------------------------------
-//  View menu
+//  View menu handlers
 // ---------------------------------------------------------------------------
 
 procedure TFormMain.OnViewProjectSource(Sender: TObject);
@@ -714,6 +765,11 @@ procedure TFormMain.OnViewShowAST(Sender: TObject);
 begin
   GoToCompilerTab;
   OnParse(Sender);
+end;
+
+procedure TFormMain.OnViewPreferences(Sender: TObject);
+begin
+  ShowPreferencesDialog;
 end;
 
 procedure TFormMain.OnAbout(Sender: TObject);
@@ -738,7 +794,6 @@ begin
   FToolPanel.Align      := alTop;
   FToolPanel.Height     := BTN_H + PAD * 2;
   FToolPanel.BevelOuter := bvNone;
-  FToolPanel.Color      := $00303030;
 
   X := PAD;
 
@@ -767,7 +822,6 @@ begin
   FStatusLabel.Left       := X;
   FStatusLabel.Top        := PAD + 7;
   FStatusLabel.Width      := 700;
-  FStatusLabel.Font.Color := clSilver;
   FStatusLabel.Caption    := '';
 
   FBottomPanel              := TPanel.Create(Self);
@@ -796,8 +850,6 @@ begin
   FMemoTok.WordWrap         := False;
   FMemoTok.Font.Name        := 'Consolas';
   FMemoTok.Font.Size        := 9;
-  FMemoTok.Color            := $001E1E1E;
-  FMemoTok.Font.Color       := $0056D364;
 
   FLeftPanel                := TPanel.Create(Self);
   FLeftPanel.Parent         := FTabCompiler;
@@ -819,8 +871,6 @@ begin
   FMemoSrc.WordWrap         := False;
   FMemoSrc.Font.Name        := 'Consolas';
   FMemoSrc.Font.Size        := 10;
-  FMemoSrc.Color            := $001E1E1E;
-  FMemoSrc.Font.Color       := $00DCDCDC;
 
   FSplitterMain             := TSplitter.Create(Self);
   FSplitterMain.Parent      := FTabCompiler;
@@ -850,8 +900,6 @@ begin
   FEditInput.Align          := alBottom;
   FEditInput.Height         := 26;
   FEditInput.Font.Name      := 'Consolas';
-  FEditInput.Color          := $00252526;
-  FEditInput.Font.Color     := clWhite;
 
   FMemoOut                  := TMemo.Create(FRightPanel);
   FMemoOut.Parent           := FRightPanel;
@@ -861,8 +909,6 @@ begin
   FMemoOut.WordWrap         := False;
   FMemoOut.Font.Name        := 'Consolas';
   FMemoOut.Font.Size        := 10;
-  FMemoOut.Color            := $00121212;
-  FMemoOut.Font.Color       := $00F8F8F2;
 end;
 
 // =============================================================================
@@ -932,14 +978,12 @@ begin
   FCalcOuter.Parent     := FTabCalc;
   FCalcOuter.Align      := alClient;
   FCalcOuter.BevelOuter := bvNone;
-  FCalcOuter.Color      := $00121212;
 
   FCalcHintLabel            := TLabel.Create(FCalcOuter);
   FCalcHintLabel.Parent     := FCalcOuter;
   FCalcHintLabel.Align      := alTop;
   FCalcHintLabel.Height     := 22;
   FCalcHintLabel.Caption    := HINT;
-  FCalcHintLabel.Font.Color := $00888888;
   FCalcHintLabel.Font.Size  := 8;
 
   FCalcInputPanel             := TPanel.Create(FCalcOuter);
@@ -947,14 +991,12 @@ begin
   FCalcInputPanel.Align       := alBottom;
   FCalcInputPanel.Height      := 46;
   FCalcInputPanel.BevelOuter  := bvNone;
-  FCalcInputPanel.Color       := $00252526;
 
   FCalcLabel                  := TLabel.Create(FCalcInputPanel);
   FCalcLabel.Parent           := FCalcInputPanel;
   FCalcLabel.Caption          := ' >';
   FCalcLabel.Font.Name        := 'Consolas';
   FCalcLabel.Font.Size        := 16;
-  FCalcLabel.Font.Color       := $0056D364;
   FCalcLabel.Left             := 6;
   FCalcLabel.Top              := 10;
 
@@ -967,8 +1009,6 @@ begin
   FCalcEdit.Anchors           := [akLeft, akTop, akRight];
   FCalcEdit.Font.Name         := 'Consolas';
   FCalcEdit.Font.Size         := 13;
-  FCalcEdit.Color             := $00252526;
-  FCalcEdit.Font.Color        := clWhite;
   FCalcEdit.BorderStyle       := bsNone;
   FCalcEdit.OnKeyPress        := OnCalcKey;
   FCalcEdit.OnKeyDown         := OnCalcSpecialKey;
@@ -993,8 +1033,6 @@ begin
   FCalcHistory.WordWrap       := False;
   FCalcHistory.Font.Name      := 'Consolas';
   FCalcHistory.Font.Size      := 12;
-  FCalcHistory.Color          := $00121212;
-  FCalcHistory.Font.Color     := $00F8F8F2;
 
   with FCalcHistory.Lines do
   begin
@@ -1097,7 +1135,7 @@ procedure TFormMain.SetStatus(const Msg: string; IsError: Boolean);
 begin
   FStatusLabel.Caption := Msg;
   if IsError then FStatusLabel.Font.Color := clRed
-  else FStatusLabel.Font.Color := clSilver;
+  else FStatusLabel.Font.Color := Theme.Colors.FgNormal;
 end;
 
 procedure TFormMain.ShowTokens(Tokens: TList<TToken>);
