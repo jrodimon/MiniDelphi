@@ -1,4 +1,4 @@
-unit UMainForm;
+﻿unit UMainForm;
 
 // =============================================================================
 // MiniDelphi Toy Compiler & Learning IDE
@@ -9,7 +9,7 @@ unit UMainForm;
 // =============================================================================
 //  UMainForm.pas  -  VCL front-end for the MiniDelphi Toy Compiler
 //
-//  Themed via UTheme — see View → Preferences... for theme selection.
+//  Skinned via VCL Styles (TStyleManager). See UTheme.pas for details.
 // =============================================================================
 
 interface
@@ -80,7 +80,6 @@ type
     FCalcBtn        : TButton;
     FCalcHintLabel  : TLabel;
 
-    // Helpers
     procedure BuildMainMenu;
     procedure BuildCompilerTab;
     procedure BuildCalcTab;
@@ -97,46 +96,43 @@ type
     procedure GoToCompilerTab;
     procedure GoToFormsTab;
 
-    // Theme integration
     procedure ApplyTheme;
     procedure WMSettingChange(var Msg: TMessage); message WM_SETTINGCHANGE;
-
     procedure OnProjectChangedHandler(Sender: TObject);
 
     // Compiler tab handlers
-    procedure OnLex            (Sender: TObject);
-    procedure OnParse          (Sender: TObject);
-    procedure OnRun            (Sender: TObject);
-    procedure OnClear          (Sender: TObject);
-    procedure OnExampleClick   (Sender: TObject);
-    procedure OnSnippetClick   (Sender: TObject);
+    procedure OnLex(Sender: TObject);
+    procedure OnParse(Sender: TObject);
+    procedure OnRun(Sender: TObject);
+    procedure OnClear(Sender: TObject);
+    procedure OnExampleClick(Sender: TObject);
+    procedure OnSnippetClick(Sender: TObject);
 
     // File menu
-    procedure OnMenuNewFile      (Sender: TObject);
-    procedure OnMenuOpenFile     (Sender: TObject);
-    procedure OnMenuSave         (Sender: TObject);
-    procedure OnMenuSaveAs       (Sender: TObject);
-    procedure OnMenuNewProject   (Sender: TObject);
-    procedure OnMenuOpenProject  (Sender: TObject);
-    procedure OnMenuCloseProject (Sender: TObject);
-    procedure OnMenuNewForm      (Sender: TObject);
-    procedure OnMenuOpenForm     (Sender: TObject);
-    procedure OnFileExit         (Sender: TObject);
+    procedure OnMenuNewFile(Sender: TObject);
+    procedure OnMenuOpenFile(Sender: TObject);
+    procedure OnMenuSave(Sender: TObject);
+    procedure OnMenuSaveAs(Sender: TObject);
+    procedure OnMenuNewProject(Sender: TObject);
+    procedure OnMenuOpenProject(Sender: TObject);
+    procedure OnMenuCloseProject(Sender: TObject);
+    procedure OnMenuNewForm(Sender: TObject);
+    procedure OnMenuOpenForm(Sender: TObject);
+    procedure OnFileExit(Sender: TObject);
 
     // View menu
     procedure OnViewProjectSource(Sender: TObject);
-    procedure OnViewShowTokens   (Sender: TObject);
-    procedure OnViewShowAST      (Sender: TObject);
-    procedure OnViewPreferences  (Sender: TObject);
+    procedure OnViewShowTokens(Sender: TObject);
+    procedure OnViewShowAST(Sender: TObject);
+    procedure OnViewPreferences(Sender: TObject);
 
     // Help menu
-    procedure OnAbout            (Sender: TObject);
+    procedure OnAbout(Sender: TObject);
 
     // Calculator handlers
-    procedure OnCalcBtn        (Sender: TObject);
-    procedure OnCalcKey        (Sender: TObject; var Key: Char);
-    procedure OnCalcSpecialKey (Sender: TObject; var Key: Word;
-                                Shift: TShiftState);
+    procedure OnCalcBtn(Sender: TObject);
+    procedure OnCalcKey(Sender: TObject; var Key: Char);
+    procedure OnCalcSpecialKey(Sender: TObject; var Key: Word; Shift: TShiftState);
   public
     constructor Create(AOwner: TComponent); override;
     destructor  Destroy; override;
@@ -149,9 +145,6 @@ implementation
 
 {$R *.dfm}
 
-// ---------------------------------------------------------------------------
-//  Built-in example programs
-// ---------------------------------------------------------------------------
 const
   EXAMPLE_COUNT = 8;
 
@@ -414,20 +407,17 @@ const
      CaretFromEnd : 0)
   );
 
-// =============================================================================
-//  Constructor / Destructor
-// =============================================================================
-
 constructor TFormMain.Create(AOwner: TComponent);
 begin
   inherited CreateNew(AOwner);
 
-  // Load theme preference from disk before building anything
+  // VCL Styles needs to be set before any controls are created or it leaves
+  // some unstyled. Theme.Load picks the right style and applies it.
   Theme.Load;
 
   Caption   := 'MiniDelphi Toy Compiler';
-  Width     := 1100;
-  Height    := 750;
+  Width     := 1180;
+  Height    := 780;
   Position  := poScreenCenter;
   Font.Name := 'Segoe UI';
   Font.Size := 10;
@@ -472,8 +462,6 @@ begin
 
   FProjectTab.OnProjectChanged := OnProjectChangedHandler;
 
-  // Apply current theme to our own controls
-  ApplyTheme;
   Theme.Subscribe(ApplyTheme);
 
   FMemoSrc.Lines.Text := EXAMPLE_CODE[0];
@@ -486,13 +474,8 @@ begin
   inherited;
 end;
 
-// =============================================================================
-//  Windows theme-change message
-// =============================================================================
-
 procedure TFormMain.WMSettingChange(var Msg: TMessage);
-var
-  S : string;
+var S : string;
 begin
   inherited;
   if Msg.LParam <> 0 then
@@ -503,49 +486,12 @@ begin
   end;
 end;
 
-// =============================================================================
-//  ApplyTheme — re-skin our own widgets to match the current theme
-// =============================================================================
-
 procedure TFormMain.ApplyTheme;
 begin
-  Theme.ApplyForm(Self);
-
-  // Compiler tab
-  if Assigned(FToolPanel)   then Theme.ApplyPanelToolbar(FToolPanel);
-  if Assigned(FStatusLabel) then Theme.ApplyLabel(FStatusLabel, 'normal');
-  if Assigned(FBottomPanel) then Theme.ApplyPanelBg(FBottomPanel);
-  if Assigned(FLabelTok)    then Theme.ApplyLabel(FLabelTok, 'header');
-  if Assigned(FMemoTok)     then
-  begin
-    FMemoTok.Color := Theme.Colors.BgOutput;
-    FMemoTok.Font.Color := Theme.Colors.FgOutput;
-  end;
-  if Assigned(FLeftPanel)   then Theme.ApplyPanelBg(FLeftPanel);
-  if Assigned(FLabelSrc)    then Theme.ApplyLabel(FLabelSrc, 'header');
-  if Assigned(FMemoSrc)     then Theme.ApplyMemoInput(FMemoSrc);
-  if Assigned(FRightPanel)  then Theme.ApplyPanelBg(FRightPanel);
-  if Assigned(FLabelOut)    then Theme.ApplyLabel(FLabelOut, 'header');
-  if Assigned(FMemoOut)     then Theme.ApplyMemoInput(FMemoOut);
-  if Assigned(FLabelInput)  then Theme.ApplyLabel(FLabelInput, 'normal');
-  if Assigned(FEditInput)   then Theme.ApplyEditInput(FEditInput);
-
-  // Calculator tab
-  if Assigned(FCalcOuter)      then Theme.ApplyPanelBg(FCalcOuter);
-  if Assigned(FCalcHintLabel)  then Theme.ApplyLabel(FCalcHintLabel, 'dim');
-  if Assigned(FCalcInputPanel) then Theme.ApplyPanelAlt(FCalcInputPanel);
-  if Assigned(FCalcLabel)      then Theme.ApplyLabel(FCalcLabel, 'accent');
-  if Assigned(FCalcEdit) then
-  begin
-    FCalcEdit.Color := Theme.Colors.BgPanelAlt;
-    FCalcEdit.Font.Color := Theme.Colors.FgInput;
-  end;
-  if Assigned(FCalcHistory) then Theme.ApplyMemoInput(FCalcHistory);
+  // VCL Styles repaints every control automatically.
+  // Hook left here for future custom-paint needs.
+  Invalidate;
 end;
-
-// =============================================================================
-//  Project → Form Builder folder sync
-// =============================================================================
 
 procedure TFormMain.OnProjectChangedHandler(Sender: TObject);
 begin
@@ -555,10 +501,6 @@ begin
   else
     FFormBuilderTab.SetProjectFolder('');
 end;
-
-// =============================================================================
-//  MAIN MENU
-// =============================================================================
 
 procedure TFormMain.BuildMainMenu;
 
@@ -590,7 +532,6 @@ var
 begin
   MM := TMainMenu.Create(Self);
 
-  // ─── File ──────────────────────────────────────────────────────────────
   MIFile := TMenuItem.Create(MM);
   MIFile.Caption := '&File';
   MM.Items.Add(MIFile);
@@ -613,7 +554,6 @@ begin
   MakeItem(MIFile, 'E&xit',             OnFileExit,
            ShortCut(VK_F4, [ssAlt]));
 
-  // ─── View ──────────────────────────────────────────────────────────────
   MIView := TMenuItem.Create(MM);
   MIView.Caption := '&View';
   MM.Items.Add(MIView);
@@ -626,7 +566,6 @@ begin
   MakeSep (MIView);
   MakeItem(MIView, 'P&references...',      OnViewPreferences);
 
-  // ─── Help ──────────────────────────────────────────────────────────────
   MIHelp := TMenuItem.Create(MM);
   MIHelp.Caption := '&Help';
   MM.Items.Add(MIHelp);
@@ -652,25 +591,18 @@ end;
 
 procedure TFormMain.GoToProjectsTab;
 begin
-  if FPages.ActivePage <> FTabProject then
-    FPages.ActivePage := FTabProject;
+  if FPages.ActivePage <> FTabProject then FPages.ActivePage := FTabProject;
 end;
 
 procedure TFormMain.GoToCompilerTab;
 begin
-  if FPages.ActivePage <> FTabCompiler then
-    FPages.ActivePage := FTabCompiler;
+  if FPages.ActivePage <> FTabCompiler then FPages.ActivePage := FTabCompiler;
 end;
 
 procedure TFormMain.GoToFormsTab;
 begin
-  if FPages.ActivePage <> FTabForms then
-    FPages.ActivePage := FTabForms;
+  if FPages.ActivePage <> FTabForms then FPages.ActivePage := FTabForms;
 end;
-
-// ---------------------------------------------------------------------------
-//  File menu handlers
-// ---------------------------------------------------------------------------
 
 procedure TFormMain.OnMenuNewFile(Sender: TObject);
 begin
@@ -745,10 +677,6 @@ begin
   Close;
 end;
 
-// ---------------------------------------------------------------------------
-//  View menu handlers
-// ---------------------------------------------------------------------------
-
 procedure TFormMain.OnViewProjectSource(Sender: TObject);
 begin
   GoToProjectsTab;
@@ -803,7 +731,7 @@ begin
   FBtnRun.Left     := X;  FBtnRun.Top := PAD;
   FBtnRun.Width    := BTN_W;  FBtnRun.Height := BTN_H;
   FBtnRun.OnClick  := OnRun;
-  FBtnRun.Hint     := 'Run the source above';
+  FBtnRun.Hint     := 'Run the source above (F5)';
   FBtnRun.ShowHint := True;
   Inc(X, BTN_W + PAD);
 
@@ -820,14 +748,14 @@ begin
   FStatusLabel            := TLabel.Create(FToolPanel);
   FStatusLabel.Parent     := FToolPanel;
   FStatusLabel.Left       := X;
-  FStatusLabel.Top        := PAD + 7;
+  FStatusLabel.Top        := PAD + 8;
   FStatusLabel.Width      := 700;
   FStatusLabel.Caption    := '';
 
   FBottomPanel              := TPanel.Create(Self);
   FBottomPanel.Parent       := FTabCompiler;
   FBottomPanel.Align        := alBottom;
-  FBottomPanel.Height       := 160;
+  FBottomPanel.Height       := 170;
   FBottomPanel.BevelOuter   := bvNone;
 
   FSplitterBot              := TSplitter.Create(Self);
@@ -838,9 +766,9 @@ begin
   FLabelTok                 := TLabel.Create(FBottomPanel);
   FLabelTok.Parent          := FBottomPanel;
   FLabelTok.Align           := alTop;
-  FLabelTok.Caption         := ' TOKEN STREAM   (View > Show Tokens)';
+  FLabelTok.Caption         := '   Token Stream';
   FLabelTok.Font.Style      := [fsBold];
-  FLabelTok.Height          := 20;
+  FLabelTok.Height          := 24;
 
   FMemoTok                  := TMemo.Create(FBottomPanel);
   FMemoTok.Parent           := FBottomPanel;
@@ -854,15 +782,15 @@ begin
   FLeftPanel                := TPanel.Create(Self);
   FLeftPanel.Parent         := FTabCompiler;
   FLeftPanel.Align          := alLeft;
-  FLeftPanel.Width          := 520;
+  FLeftPanel.Width          := 540;
   FLeftPanel.BevelOuter     := bvNone;
 
   FLabelSrc                 := TLabel.Create(FLeftPanel);
   FLabelSrc.Parent          := FLeftPanel;
   FLabelSrc.Align           := alTop;
-  FLabelSrc.Caption         := ' SOURCE CODE   (right-click for snippets,  F5 to run)';
+  FLabelSrc.Caption         := '   Source   (right-click for snippets,  F5 to run)';
   FLabelSrc.Font.Style      := [fsBold];
-  FLabelSrc.Height          := 20;
+  FLabelSrc.Height          := 24;
 
   FMemoSrc                  := TMemo.Create(FLeftPanel);
   FMemoSrc.Parent           := FLeftPanel;
@@ -885,14 +813,14 @@ begin
   FLabelOut                 := TLabel.Create(FRightPanel);
   FLabelOut.Parent          := FRightPanel;
   FLabelOut.Align           := alTop;
-  FLabelOut.Caption         := ' OUTPUT';
+  FLabelOut.Caption         := '   Output';
   FLabelOut.Font.Style      := [fsBold];
-  FLabelOut.Height          := 20;
+  FLabelOut.Height          := 24;
 
   FLabelInput               := TLabel.Create(FRightPanel);
   FLabelInput.Parent        := FRightPanel;
   FLabelInput.Align         := alBottom;
-  FLabelInput.Caption       := '  readln input (used by your program):';
+  FLabelInput.Caption       := '   readln input (used by your program):';
   FLabelInput.Height        := 22;
 
   FEditInput                := TEdit.Create(FRightPanel);
@@ -910,10 +838,6 @@ begin
   FMemoOut.Font.Name        := 'Consolas';
   FMemoOut.Font.Size        := 10;
 end;
-
-// =============================================================================
-//  SNIPPET MENU
-// =============================================================================
 
 procedure TFormMain.BuildSnippetMenu;
 var
@@ -969,10 +893,9 @@ end;
 procedure TFormMain.BuildCalcTab;
 const
   HINT =
-    '  Operators: + - * / div mod     ' +
+    '   Operators: + - * / div mod     ' +
     'Functions: abs  sqr  sqrt  power(x,y)  round  trunc  ' +
-    'sin  cos  ln  exp  pi  max(a,b)  min(a,b)     ' +
-    'Press Enter or click  =  to evaluate';
+    'sin  cos  ln  exp  pi  max(a,b)  min(a,b)';
 begin
   FCalcOuter            := TPanel.Create(Self);
   FCalcOuter.Parent     := FTabCalc;
@@ -982,14 +905,13 @@ begin
   FCalcHintLabel            := TLabel.Create(FCalcOuter);
   FCalcHintLabel.Parent     := FCalcOuter;
   FCalcHintLabel.Align      := alTop;
-  FCalcHintLabel.Height     := 22;
+  FCalcHintLabel.Height     := 26;
   FCalcHintLabel.Caption    := HINT;
-  FCalcHintLabel.Font.Size  := 8;
 
   FCalcInputPanel             := TPanel.Create(FCalcOuter);
   FCalcInputPanel.Parent      := FCalcOuter;
   FCalcInputPanel.Align       := alBottom;
-  FCalcInputPanel.Height      := 46;
+  FCalcInputPanel.Height      := 50;
   FCalcInputPanel.BevelOuter  := bvNone;
 
   FCalcLabel                  := TLabel.Create(FCalcInputPanel);
@@ -997,19 +919,18 @@ begin
   FCalcLabel.Caption          := ' >';
   FCalcLabel.Font.Name        := 'Consolas';
   FCalcLabel.Font.Size        := 16;
-  FCalcLabel.Left             := 6;
-  FCalcLabel.Top              := 10;
+  FCalcLabel.Left             := 8;
+  FCalcLabel.Top              := 12;
 
   FCalcEdit                   := TEdit.Create(FCalcInputPanel);
   FCalcEdit.Parent            := FCalcInputPanel;
-  FCalcEdit.Left              := 28;
-  FCalcEdit.Top               := 8;
+  FCalcEdit.Left              := 32;
+  FCalcEdit.Top               := 10;
   FCalcEdit.Height            := 30;
-  FCalcEdit.Width             := FCalcInputPanel.Width - 96;
+  FCalcEdit.Width             := FCalcInputPanel.Width - 104;
   FCalcEdit.Anchors           := [akLeft, akTop, akRight];
   FCalcEdit.Font.Name         := 'Consolas';
   FCalcEdit.Font.Size         := 13;
-  FCalcEdit.BorderStyle       := bsNone;
   FCalcEdit.OnKeyPress        := OnCalcKey;
   FCalcEdit.OnKeyDown         := OnCalcSpecialKey;
 
@@ -1018,11 +939,11 @@ begin
   FCalcBtn.Caption            := '=';
   FCalcBtn.Font.Name          := 'Consolas';
   FCalcBtn.Font.Size          := 14;
-  FCalcBtn.Width              := 50;
+  FCalcBtn.Width              := 56;
   FCalcBtn.Height             := 30;
-  FCalcBtn.Top                := 8;
+  FCalcBtn.Top                := 10;
   FCalcBtn.Anchors            := [akTop, akRight];
-  FCalcBtn.Left               := FCalcInputPanel.Width - 56;
+  FCalcBtn.Left               := FCalcInputPanel.Width - 64;
   FCalcBtn.OnClick            := OnCalcBtn;
 
   FCalcHistory                := TMemo.Create(FCalcOuter);
@@ -1036,9 +957,9 @@ begin
 
   with FCalcHistory.Lines do
   begin
-    Add('  MiniDelphi Calculator');
-    Add('  -------------------------------------');
-    Add('  Type any expression and press Enter.');
+    Add('   MiniDelphi Calculator');
+    Add('   -------------------------------------');
+    Add('   Type any expression and press Enter.');
     Add('');
   end;
 end;
@@ -1086,15 +1007,15 @@ begin
       if Output.Count > 0 then Answer := Output[0]
       else Answer := '(no result)';
 
-      FCalcHistory.Lines.Add('  > ' + Raw);
-      FCalcHistory.Lines.Add('    = ' + Answer);
+      FCalcHistory.Lines.Add('   > ' + Raw);
+      FCalcHistory.Lines.Add('     = ' + Answer);
       FCalcHistory.Lines.Add('');
 
     except
       on E: Exception do
       begin
-        FCalcHistory.Lines.Add('  > ' + Raw);
-        FCalcHistory.Lines.Add('    Error: ' + E.Message);
+        FCalcHistory.Lines.Add('   > ' + Raw);
+        FCalcHistory.Lines.Add('     Error: ' + E.Message);
         FCalcHistory.Lines.Add('');
       end;
     end;
@@ -1127,15 +1048,11 @@ begin
     FCalcEdit.SelectAll;
 end;
 
-// =============================================================================
-//  STATUS / TOKENS / VALIDATION
-// =============================================================================
-
 procedure TFormMain.SetStatus(const Msg: string; IsError: Boolean);
 begin
   FStatusLabel.Caption := Msg;
   if IsError then FStatusLabel.Font.Color := clRed
-  else FStatusLabel.Font.Color := Theme.Colors.FgNormal;
+  else FStatusLabel.Font.Color := clDefault;
 end;
 
 procedure TFormMain.ShowTokens(Tokens: TList<TToken>);

@@ -13,35 +13,12 @@ unit UFormBuilderTab;
 //  Layout
 //  ──────
 //    Top:      toolbar — New / Open / Save / Save As / Delete
-//    Top-2:    palette — Pointer | Label | Button | Edit
 //    Left:     list of .mdfrm files in current project
-//    Centre:   design surface (a TPanel sized to FormDef.Width/Height)
-//    Right:    Object Inspector — two-column property grid
+//    Center-L: vertical palette (Pointer / Label / Button / Edit)
+//    Center:   design surface
+//    Right:    Object Inspector
 //
-//  Interaction
-//  ───────────
-//    Pointer mode (default):
-//      Click empty space    → select the form
-//      Click control        → select it
-//      Drag selected ctrl   → move it
-//      Delete key           → remove selected control
-//      Arrow keys           → nudge selected control by 1px
-//
-//    Palette tool selected (Label/Button/Edit):
-//      Click anywhere on surface → place a new control of that type
-//      After placing, mode reverts to Pointer
-//
-//  Phase 2 hooks (already in place)
-//    - TControlDef/TFormDef use property bags → new props are zero-cost
-//    - Selection is a list (multi-select ready)
-//    - Z-order is preserved in file order
-//    - RunFormDef builds a real TForm at runtime
-//    - Event handler names are stored as strings; Phase 2 will look them up
-//
-//  Public API for menu / interpreter integration
-//    DoNew, DoOpen, DoSave, DoSaveAs
-//    LoadFormFile(path)
-//    RunFormDef(formDef)  — Phase 1: shows the form read-only
+//  Skinned by VCL Styles (via UTheme). No per-control color code.
 // =============================================================================
 
 interface
@@ -62,10 +39,8 @@ const
 type
   TPaletteTool = (ptPointer, ptLabel, ptButton, ptEdit);
 
-  // ---------------------------------------------------------------------------
-  //  TPanel doesn't publish OnKeyDown so we publish it here in a subclass.
-  //  Used for the design surface so arrow keys / Delete can be captured.
-  // ---------------------------------------------------------------------------
+  // TPanel that publishes OnKeyDown — needed so we can capture
+  // Delete and arrow keys on the design surface.
   TKeyAwarePanel = class(TPanel)
   published
     property OnKeyDown;
@@ -73,22 +48,17 @@ type
     property OnKeyPress;
   end;
 
-  // ---------------------------------------------------------------------------
-  //  TFormBuilderTab — main class
-  // ---------------------------------------------------------------------------
   TFormBuilderTab = class
   private
     FParent       : TWinControl;
 
-    // Model
     FFormDef      : TFormDef;
-    FCurrentFile  : string;             // path of currently loaded .mdfrm ('' = unsaved)
+    FCurrentFile  : string;
     FModified     : Boolean;
-    FSelection    : TList<TControlDef>; // Phase 1 holds 0 or 1
+    FSelection    : TList<TControlDef>;
     FTool         : TPaletteTool;
-    FProjectFolder: string;             // tracked from outside, used as InitialDir
+    FProjectFolder: string;
 
-    // Drag tracking
     FDragging     : Boolean;
     FDragStartX   : Integer;
     FDragStartY   : Integer;
@@ -98,7 +68,6 @@ type
     // UI
     FOuter        : TPanel;
     FToolbar      : TPanel;
-    FPalette      : TPanel;
     FBtnNew       : TButton;
     FBtnOpen      : TButton;
     FBtnSave      : TButton;
@@ -106,31 +75,30 @@ type
     FBtnDelete    : TButton;
     FLabelStatus  : TLabel;
 
-    FBtnTPointer  : TButton;
-    FBtnTLabel    : TButton;
-    FBtnTButton   : TButton;
-    FBtnTEdit     : TButton;
-
     FLeftPanel    : TPanel;
     FFileList     : TListBox;
     FLabelFiles   : TLabel;
     FSplitterL    : TSplitter;
+
+    FPalettePanel : TPanel;
+    FLabelPalette : TLabel;
+    FPaletteList  : TListBox;
+    FSplitterP    : TSplitter;
 
     FRightPanel   : TPanel;
     FLabelInsp    : TLabel;
     FInspector    : TStringGrid;
     FSplitterR    : TSplitter;
 
-    FCanvasPanel  : TPanel;             // background that hosts FDesignSurface
-    FDesignSurface: TKeyAwarePanel;     // the form being designed
-    FCanvasInfo   : TLabel;             // small text above the canvas
+    FCanvasPanel  : TPanel;
+    FDesignSurface: TKeyAwarePanel;
+    FCanvasInfo   : TLabel;
 
-    // We track which VCL control is which TControlDef via a parallel list
     FCtrlMap      : TDictionary<TWinControl, TControlDef>;
 
     procedure BuildUI;
     procedure ApplyTheme;
-    procedure RefreshFromModel;       // rebuild the design surface from FFormDef
+    procedure RefreshFromModel;
     procedure RefreshInspector;
     procedure RefreshFileList;
     procedure RebuildDesignSurface;
@@ -138,23 +106,19 @@ type
     procedure SetModified(V: Boolean);
     procedure SelectControl(C: TControlDef);
     procedure UpdateStatus;
-    function  AddSelectionMarkers(Ctrl: TWinControl) : Boolean;
+    procedure SyncPaletteSelection;
 
-    // Convert a control kind name to its info row
-    function  KindInfoByName(const TypeName: string) : TControlKindInfo;
     function  KindInfoByTool(T: TPaletteTool) : TControlKindInfo;
 
-    // VCL factory — used by both the designer and the runtime
     function  BuildVCLControlForDesign(Parent: TWinControl; CD: TControlDef) : TWinControl;
     function  BuildVCLControlForRuntime(Parent: TWinControl; CD: TControlDef) : TControl;
 
-    // Event handlers
     procedure OnBtnNew      (Sender: TObject);
     procedure OnBtnOpen     (Sender: TObject);
     procedure OnBtnSave     (Sender: TObject);
     procedure OnBtnSaveAs   (Sender: TObject);
     procedure OnBtnDelete   (Sender: TObject);
-    procedure OnPaletteClick(Sender: TObject);
+    procedure OnPaletteSelect(Sender: TObject);
 
     procedure OnFileListDblClick(Sender: TObject);
     procedure OnSurfaceMouseDown(Sender: TObject; Button: TMouseButton;
@@ -175,20 +139,16 @@ type
 
     procedure OnInspectorSetEditText(Sender: TObject; ACol, ARow: Integer;
                                      const Value: string);
-
   public
     constructor Create(AParent: TWinControl);
     destructor  Destroy; override;
 
-    // External hooks
     procedure SetProjectFolder(const Folder: string);
     procedure LoadFormFile(const Path: string);
 
-    // Phase 1 minimal runtime
     procedure RunFormDef(FD: TFormDef);
     procedure RunFormFile(const Path: string);
 
-    // Public file operations — main form's File menu can call these
     procedure DoNew;
     procedure DoOpen;
     procedure DoSave;
@@ -202,11 +162,6 @@ type
 // =============================================================================
 implementation
 // =============================================================================
-
-const
-  DARK    = $00252526;
-  DARKER  = $001E1E1E;
-  GREEN   = $0056D364;
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Constructor / Destructor
@@ -228,6 +183,7 @@ begin
   BuildUI;
   RefreshFromModel;
   UpdateStatus;
+  SyncPaletteSelection;
 
   ApplyTheme;
   Theme.Subscribe(ApplyTheme);
@@ -242,34 +198,9 @@ begin
   inherited;
 end;
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  THEME
-//
-//  Note: the design surface (FDesignSurface) is intentionally NOT themed.
-//  It's meant to look like a real Windows form regardless of the IDE's
-//  theme — i.e., always clBtnFace with raised bevel. The canvas around
-//  it does follow the theme.
-// ═══════════════════════════════════════════════════════════════════════════
-
 procedure TFormBuilderTab.ApplyTheme;
 begin
-  if Assigned(FOuter)         then Theme.ApplyPanelBg(FOuter);
-  if Assigned(FToolbar)       then Theme.ApplyPanelToolbar(FToolbar);
-  if Assigned(FPalette)       then Theme.ApplyPanelToolbar(FPalette);
-  if Assigned(FLabelStatus)   then Theme.ApplyLabel(FLabelStatus, 'normal');
-
-  if Assigned(FLeftPanel)     then Theme.ApplyPanelAlt(FLeftPanel);
-  if Assigned(FLabelFiles)    then Theme.ApplyLabel(FLabelFiles, 'header');
-  if Assigned(FFileList)      then Theme.ApplyListBox(FFileList);
-
-  if Assigned(FRightPanel)    then Theme.ApplyPanelAlt(FRightPanel);
-  if Assigned(FLabelInsp)     then Theme.ApplyLabel(FLabelInsp, 'header');
-  if Assigned(FInspector)     then Theme.ApplyStringGrid(FInspector);
-
-  if Assigned(FCanvasPanel)   then Theme.ApplyPanelBg(FCanvasPanel);
-  if Assigned(FCanvasInfo)    then Theme.ApplyLabel(FCanvasInfo, 'accent');
-
-  // FDesignSurface stays in light "form" colors regardless of theme
+  // VCL Styles repaints everything. No per-control work needed.
 end;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -278,27 +209,26 @@ end;
 
 procedure TFormBuilderTab.BuildUI;
 const
-  BW = 80;
-  BH = 28;
-  PAD = 5;
+  BW  = 88;
+  BH  = 30;
+  PAD = 8;
 
   procedure MakeBtn(var B: TButton; Parent: TWinControl;
                     const Cap: string; var X: Integer;
-                    Handler: TNotifyEvent; W: Integer = BW;
-                    const Hint: string = '');
+                    Handler: TNotifyEvent; const Hint: string = '');
   begin
     B := TButton.Create(Parent);
     B.Parent  := Parent;
     B.Caption := Cap;
     B.Left    := X;  B.Top := PAD;
-    B.Width   := W;  B.Height := BH;
+    B.Width   := BW; B.Height := BH;
     B.OnClick := Handler;
     if Hint <> '' then
     begin
-      B.Hint     := Hint;
+      B.Hint := Hint;
       B.ShowHint := True;
     end;
-    Inc(X, W + PAD);
+    Inc(X, BW + PAD);
   end;
 
 var X : Integer;
@@ -310,7 +240,6 @@ begin
   FOuter.Parent     := FParent;
   FOuter.Align      := alClient;
   FOuter.BevelOuter := bvNone;
-  FOuter.Color      := DARKER;
 
   // ── Top toolbar ────────────────────────────────────────────────────────
   FToolbar            := TPanel.Create(FOuter);
@@ -318,89 +247,37 @@ begin
   FToolbar.Align      := alTop;
   FToolbar.Height     := BH + PAD * 2;
   FToolbar.BevelOuter := bvNone;
-  FToolbar.Color      := $00303030;
 
   X := PAD;
-  MakeBtn(FBtnNew,    FToolbar, 'New',     X, OnBtnNew,    BW, 'New form');
-  MakeBtn(FBtnOpen,   FToolbar, 'Open',    X, OnBtnOpen,   BW, 'Open .mdfrm file');
-  MakeBtn(FBtnSave,   FToolbar, 'Save',    X, OnBtnSave,   BW, 'Save form');
-  MakeBtn(FBtnSaveAs, FToolbar, 'Save As', X, OnBtnSaveAs, BW, 'Save form as...');
-  MakeBtn(FBtnDelete, FToolbar, 'Delete',  X, OnBtnDelete, BW, 'Delete selected control (or press Del)');
+  MakeBtn(FBtnNew,    FToolbar, 'New',     X, OnBtnNew,    'New form');
+  MakeBtn(FBtnOpen,   FToolbar, 'Open',    X, OnBtnOpen,   'Open .mdfrm');
+  MakeBtn(FBtnSave,   FToolbar, 'Save',    X, OnBtnSave,   'Save form');
+  MakeBtn(FBtnSaveAs, FToolbar, 'Save As', X, OnBtnSaveAs, 'Save form as...');
+  MakeBtn(FBtnDelete, FToolbar, 'Delete',  X, OnBtnDelete, 'Delete selected control (or press Del)');
 
   FLabelStatus            := TLabel.Create(FToolbar);
   FLabelStatus.Parent     := FToolbar;
   FLabelStatus.Left       := X + PAD * 2;
-  FLabelStatus.Top        := PAD + 6;
-  FLabelStatus.Width      := 600;
-  FLabelStatus.Font.Color := clWhite;
-
-  // ── Palette ────────────────────────────────────────────────────────────
-  FPalette            := TPanel.Create(FOuter);
-  FPalette.Parent     := FOuter;
-  FPalette.Align      := alTop;
-  FPalette.Height     := BH + PAD * 2;
-  FPalette.BevelOuter := bvNone;
-  FPalette.Color      := $00404040;
-
-  X := PAD;
-  FBtnTPointer := TButton.Create(FPalette);
-  FBtnTPointer.Parent  := FPalette;
-  FBtnTPointer.Caption := 'Pointer';
-  FBtnTPointer.Left := X; FBtnTPointer.Top := PAD;
-  FBtnTPointer.Width := BW; FBtnTPointer.Height := BH;
-  FBtnTPointer.OnClick := OnPaletteClick;
-  FBtnTPointer.Tag := Ord(ptPointer);
-  Inc(X, BW + PAD * 2);
-
-  FBtnTLabel := TButton.Create(FPalette);
-  FBtnTLabel.Parent  := FPalette;
-  FBtnTLabel.Caption := 'Label';
-  FBtnTLabel.Left := X; FBtnTLabel.Top := PAD;
-  FBtnTLabel.Width := BW; FBtnTLabel.Height := BH;
-  FBtnTLabel.OnClick := OnPaletteClick;
-  FBtnTLabel.Tag := Ord(ptLabel);
-  Inc(X, BW + PAD);
-
-  FBtnTButton := TButton.Create(FPalette);
-  FBtnTButton.Parent  := FPalette;
-  FBtnTButton.Caption := 'Button';
-  FBtnTButton.Left := X; FBtnTButton.Top := PAD;
-  FBtnTButton.Width := BW; FBtnTButton.Height := BH;
-  FBtnTButton.OnClick := OnPaletteClick;
-  FBtnTButton.Tag := Ord(ptButton);
-  Inc(X, BW + PAD);
-
-  FBtnTEdit := TButton.Create(FPalette);
-  FBtnTEdit.Parent  := FPalette;
-  FBtnTEdit.Caption := 'Edit';
-  FBtnTEdit.Left := X; FBtnTEdit.Top := PAD;
-  FBtnTEdit.Width := BW; FBtnTEdit.Height := BH;
-  FBtnTEdit.OnClick := OnPaletteClick;
-  FBtnTEdit.Tag := Ord(ptEdit);
+  FLabelStatus.Top        := PAD + 8;
+  FLabelStatus.Width      := 700;
 
   // ── Left: file list ────────────────────────────────────────────────────
   FLeftPanel            := TPanel.Create(FOuter);
   FLeftPanel.Parent     := FOuter;
   FLeftPanel.Align      := alLeft;
-  FLeftPanel.Width      := 200;
+  FLeftPanel.Width      := 180;
   FLeftPanel.BevelOuter := bvNone;
-  FLeftPanel.Color      := DARK;
 
   FLabelFiles            := TLabel.Create(FLeftPanel);
   FLabelFiles.Parent     := FLeftPanel;
   FLabelFiles.Align      := alTop;
-  FLabelFiles.Height     := 22;
-  FLabelFiles.Caption    := '  Forms in Project';
+  FLabelFiles.Height     := 28;
+  FLabelFiles.Caption    := '   Forms in Project';
   FLabelFiles.Font.Style := [fsBold];
-  FLabelFiles.Font.Color := clWhite;
 
   FFileList              := TListBox.Create(FLeftPanel);
   FFileList.Parent       := FLeftPanel;
   FFileList.Align        := alClient;
-  FFileList.Color        := clWindow;
-  FFileList.Font.Color   := clBlack;
-  FFileList.Font.Name    := 'Segoe UI';
-  FFileList.Font.Size    := 9;
   FFileList.OnDblClick   := OnFileListDblClick;
 
   FSplitterL := TSplitter.Create(FOuter);
@@ -408,21 +285,48 @@ begin
   FSplitterL.Align  := alLeft;
   FSplitterL.Width  := 4;
 
+  // ── Palette (between file list and canvas) ─────────────────────────────
+  FPalettePanel            := TPanel.Create(FOuter);
+  FPalettePanel.Parent     := FOuter;
+  FPalettePanel.Align      := alLeft;
+  FPalettePanel.Width      := 140;
+  FPalettePanel.BevelOuter := bvNone;
+
+  FLabelPalette            := TLabel.Create(FPalettePanel);
+  FLabelPalette.Parent     := FPalettePanel;
+  FLabelPalette.Align      := alTop;
+  FLabelPalette.Height     := 28;
+  FLabelPalette.Caption    := '   Palette';
+  FLabelPalette.Font.Style := [fsBold];
+
+  FPaletteList              := TListBox.Create(FPalettePanel);
+  FPaletteList.Parent       := FPalettePanel;
+  FPaletteList.Align        := alClient;
+  FPaletteList.Items.Add('Pointer');
+  FPaletteList.Items.Add('Label');
+  FPaletteList.Items.Add('Button');
+  FPaletteList.Items.Add('Edit');
+  FPaletteList.ItemIndex    := 0;
+  FPaletteList.OnClick      := OnPaletteSelect;
+
+  FSplitterP := TSplitter.Create(FOuter);
+  FSplitterP.Parent := FOuter;
+  FSplitterP.Align  := alLeft;
+  FSplitterP.Width  := 4;
+
   // ── Right: object inspector ────────────────────────────────────────────
   FRightPanel            := TPanel.Create(FOuter);
   FRightPanel.Parent     := FOuter;
   FRightPanel.Align      := alRight;
-  FRightPanel.Width      := 260;
+  FRightPanel.Width      := 280;
   FRightPanel.BevelOuter := bvNone;
-  FRightPanel.Color      := DARK;
 
   FLabelInsp            := TLabel.Create(FRightPanel);
   FLabelInsp.Parent     := FRightPanel;
   FLabelInsp.Align      := alTop;
-  FLabelInsp.Height     := 22;
-  FLabelInsp.Caption    := '  Object Inspector';
+  FLabelInsp.Height     := 28;
+  FLabelInsp.Caption    := '   Object Inspector';
   FLabelInsp.Font.Style := [fsBold];
-  FLabelInsp.Font.Color := clWhite;
 
   FInspector                  := TStringGrid.Create(FRightPanel);
   FInspector.Parent           := FRightPanel;
@@ -431,19 +335,14 @@ begin
   FInspector.RowCount         := 2;
   FInspector.FixedRows        := 1;
   FInspector.FixedCols        := 0;
-  FInspector.DefaultRowHeight := 20;
+  FInspector.DefaultRowHeight := 22;
   FInspector.Options          := [goFixedHorzLine, goFixedVertLine,
                                   goHorzLine, goVertLine, goEditing,
                                   goAlwaysShowEditor];
   FInspector.Cells[0, 0] := 'Property';
   FInspector.Cells[1, 0] := 'Value';
-  FInspector.ColWidths[0] := 100;
-  FInspector.ColWidths[1] := 140;
-  FInspector.Color        := clWindow;
-  FInspector.Font.Color   := clBlack;
-  FInspector.Font.Name    := 'Segoe UI';
-  FInspector.Font.Size    := 9;
-  FInspector.FixedColor   := clBtnFace;
+  FInspector.ColWidths[0] := 110;
+  FInspector.ColWidths[1] := 160;
   FInspector.OnSetEditText := OnInspectorSetEditText;
 
   FSplitterR := TSplitter.Create(FOuter);
@@ -451,29 +350,30 @@ begin
   FSplitterR.Align  := alRight;
   FSplitterR.Width  := 4;
 
-  // ── Centre: canvas with design surface ─────────────────────────────────
+  // ── Center: canvas ─────────────────────────────────────────────────────
   FCanvasPanel             := TPanel.Create(FOuter);
   FCanvasPanel.Parent      := FOuter;
   FCanvasPanel.Align       := alClient;
   FCanvasPanel.BevelOuter  := bvNone;
-  FCanvasPanel.Color       := DARKER;
 
   FCanvasInfo            := TLabel.Create(FCanvasPanel);
   FCanvasInfo.Parent     := FCanvasPanel;
   FCanvasInfo.Align      := alTop;
-  FCanvasInfo.Height     := 20;
-  FCanvasInfo.Caption    := '  Design surface — click on the form to select it, or click a control';
-  FCanvasInfo.Font.Color := GREEN;
+  FCanvasInfo.Height     := 26;
+  FCanvasInfo.Caption    := '   Click a palette tool, then click the form to place a control';
 
-  // Design surface lives at a fixed position inside the canvas
+  // Design surface — light "form" look regardless of theme (it represents
+  // a real Windows form preview).
   FDesignSurface             := TKeyAwarePanel.Create(FCanvasPanel);
   FDesignSurface.Parent      := FCanvasPanel;
-  FDesignSurface.Left        := 20;
-  FDesignSurface.Top         := 30;
+  FDesignSurface.Left        := 24;
+  FDesignSurface.Top         := 34;
   FDesignSurface.Width       := FFormDef.GetWidth;
   FDesignSurface.Height      := FFormDef.GetHeight;
   FDesignSurface.BevelOuter  := bvRaised;
   FDesignSurface.Color       := clBtnFace;
+  FDesignSurface.ParentBackground := False;
+  FDesignSurface.StyleElements   := [];
   FDesignSurface.Caption     := '';
   FDesignSurface.TabStop     := True;
   FDesignSurface.OnMouseDown := OnSurfaceMouseDown;
@@ -483,7 +383,7 @@ begin
 end;
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  STATUS / SELECTION / TOOL
+//  STATUS / TOOL SELECTION
 // ═══════════════════════════════════════════════════════════════════════════
 
 procedure TFormBuilderTab.UpdateStatus;
@@ -493,9 +393,9 @@ var
 begin
   case FTool of
     ptPointer : Tool := 'Pointer';
-    ptLabel   : Tool := 'Label  (click surface to place)';
-    ptButton  : Tool := 'Button (click surface to place)';
-    ptEdit    : Tool := 'Edit   (click surface to place)';
+    ptLabel   : Tool := 'Label (click form to place)';
+    ptButton  : Tool := 'Button (click form to place)';
+    ptEdit    : Tool := 'Edit (click form to place)';
   end;
 
   if FCurrentFile = '' then
@@ -512,7 +412,14 @@ end;
 procedure TFormBuilderTab.SetTool(T: TPaletteTool);
 begin
   FTool := T;
+  SyncPaletteSelection;
   UpdateStatus;
+end;
+
+procedure TFormBuilderTab.SyncPaletteSelection;
+begin
+  if Assigned(FPaletteList) then
+    FPaletteList.ItemIndex := Ord(FTool);
 end;
 
 procedure TFormBuilderTab.SetModified(V: Boolean);
@@ -527,21 +434,10 @@ begin
   if C <> nil then
     FSelection.Add(C);
   RefreshInspector;
-  // Trigger a redraw to update selection markers
   FDesignSurface.Invalidate;
   for var Ctrl in FCtrlMap.Keys do
     Ctrl.Invalidate;
   UpdateStatus;
-end;
-
-function TFormBuilderTab.KindInfoByName(const TypeName: string): TControlKindInfo;
-var I : Integer;
-begin
-  for I := 0 to High(CONTROL_KINDS) do
-    if SameText(CONTROL_KINDS[I].TypeName, TypeName) then
-      Exit(CONTROL_KINDS[I]);
-  // Default to Label if unknown
-  Result := CONTROL_KINDS[0];
 end;
 
 function TFormBuilderTab.KindInfoByTool(T: TPaletteTool): TControlKindInfo;
@@ -555,8 +451,19 @@ begin
   end;
 end;
 
+procedure TFormBuilderTab.OnPaletteSelect(Sender: TObject);
+begin
+  case FPaletteList.ItemIndex of
+    0 : FTool := ptPointer;
+    1 : FTool := ptLabel;
+    2 : FTool := ptButton;
+    3 : FTool := ptEdit;
+  end;
+  UpdateStatus;
+end;
+
 // ═══════════════════════════════════════════════════════════════════════════
-//  REFRESH — rebuild VCL controls from model
+//  REFRESH
 // ═══════════════════════════════════════════════════════════════════════════
 
 procedure TFormBuilderTab.RefreshFromModel;
@@ -574,7 +481,6 @@ var
   W   : TWinControl;
   Lst : TList<TWinControl>;
 begin
-  // Drop all currently mapped controls (they're parented to FDesignSurface)
   Lst := TList<TWinControl>.Create;
   try
     for W in FCtrlMap.Keys do
@@ -586,7 +492,6 @@ begin
   end;
   FCtrlMap.Clear;
 
-  // Recreate from model
   for C in FFormDef.Controls do
   begin
     W := BuildVCLControlForDesign(FDesignSurface, C);
@@ -595,13 +500,6 @@ begin
   end;
 end;
 
-// ---------------------------------------------------------------------------
-//  Factory: build a VCL control for the DESIGN surface
-//
-//  At design time everything is rendered as a TPanel (so we can handle
-//  mouse events uniformly even for TLabel which doesn't accept them).
-//  The panel mimics the look of the real control via Caption + style.
-// ---------------------------------------------------------------------------
 function TFormBuilderTab.BuildVCLControlForDesign(Parent: TWinControl;
   CD: TControlDef): TWinControl;
 var
@@ -617,8 +515,9 @@ begin
   P.OnMouseDown := OnDesignedCtrlMouseDown;
   P.OnMouseMove := OnDesignedCtrlMouseMove;
   P.OnMouseUp   := OnDesignedCtrlMouseUp;
+  P.ParentBackground := False;
+  P.StyleElements   := [];
 
-  // Style differs per control type so it looks like the real thing
   if SameText(CD.ControlType, 'Button') then
   begin
     P.Caption := CD.GetCaption;
@@ -645,11 +544,6 @@ begin
   Result := P;
 end;
 
-// ---------------------------------------------------------------------------
-//  Factory: build a VCL control for the RUNTIME form
-//
-//  Used by RunFormDef to produce a real, live TForm at run time.
-// ---------------------------------------------------------------------------
 function TFormBuilderTab.BuildVCLControlForRuntime(Parent: TWinControl;
   CD: TControlDef): TControl;
 var
@@ -679,9 +573,6 @@ begin
     B.Height  := CD.GetHeight;
     B.Caption := CD.GetCaption;
     B.Name    := CD.Name;
-    // Phase 2 hook: this is where we'd assign B.OnClick to call the
-    // interpreter routine whose name is stored in CD.GetOnClick.
-    // For Phase 1, the button is inert (no handler attached).
     Result := B;
   end
   else if SameText(CD.ControlType, 'Edit') then
@@ -719,16 +610,14 @@ procedure TFormBuilderTab.RefreshInspector;
 
     Keys := TStringList.Create;
     try
-      // Build a stable ordered key list — common props first, then the rest
       if ExtraNameRow then
       begin
         Keys.Add('Name');
         Keys.Add('Type');
       end
       else
-        Keys.Add('Name');     // form name
+        Keys.Add('Name');
 
-      // Well-known properties in order
       if not ExtraNameRow then
       begin
         Keys.Add('Caption');
@@ -748,7 +637,6 @@ procedure TFormBuilderTab.RefreshInspector;
         Keys.Add('OnClick');
       end;
 
-      // Append any other props in the bag that aren't already listed
       for I := 0 to PropBag.Count - 1 do
       begin
         K := PropBag.Names[I];
@@ -790,14 +678,10 @@ begin
   end
   else
   begin
-    // Form itself
     ShowProps('Form', FFormDef.PropList, False, FFormDef.Name, '');
   end;
 end;
 
-// ---------------------------------------------------------------------------
-//  Inspector edit committed
-// ---------------------------------------------------------------------------
 procedure TFormBuilderTab.OnInspectorSetEditText(Sender: TObject;
   ACol, ARow: Integer; const Value: string);
 var
@@ -809,14 +693,12 @@ begin
   Key := FInspector.Cells[0, ARow];
   if Key = '' then Exit;
 
-  // Are we editing the form, or a selected control?
   if FSelection.Count = 1 then
   begin
     C := FSelection[0];
 
     if SameText(Key, 'Type') then
     begin
-      // Don't allow type changes via inspector — too disruptive
       RefreshInspector;
       Exit;
     end;
@@ -827,7 +709,7 @@ begin
       if NewName = C.Name then Exit;
       if not IsValidIdentifier(NewName) then
       begin
-        ShowMessage('Name must be a valid identifier (letters, digits, underscore; no leading digit).');
+        ShowMessage('Name must be a valid identifier.');
         RefreshInspector;
         Exit;
       end;
@@ -845,8 +727,6 @@ begin
 
     if SameText(Key, 'OnClick') then
     begin
-      // Empty is allowed (no handler). Non-empty must be a valid identifier
-      // because Phase 2 will look this up in the interpreter's routine table.
       if (Value <> '') and (not IsValidIdentifier(Trim(Value))) then
       begin
         ShowMessage('Handler name must be a valid identifier or empty.');
@@ -861,11 +741,10 @@ begin
     C.Props[Key] := Value;
     SetModified(True);
     RebuildDesignSurface;
-    SelectControl(FFormDef.FindControl(C.Name));   // re-select after rebuild
+    SelectControl(FFormDef.FindControl(C.Name));
   end
   else
   begin
-    // Form-level edits
     if SameText(Key, 'Name') then
     begin
       NewName := Trim(Value);
@@ -895,7 +774,7 @@ begin
 end;
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  FILE LIST (left pane)
+//  FILE LIST
 // ═══════════════════════════════════════════════════════════════════════════
 
 procedure TFormBuilderTab.SetProjectFolder(const Folder: string);
@@ -932,7 +811,7 @@ var
 begin
   if FFileList.ItemIndex < 0 then Exit;
   S := FFileList.Items[FFileList.ItemIndex];
-  if Pos('(', S) = 1 then Exit;       // placeholder line
+  if Pos('(', S) = 1 then Exit;
   if FProjectFolder = '' then Exit;
   Path := IncludeTrailingPathDelimiter(FProjectFolder) + S;
   if TFile.Exists(Path) then
@@ -972,15 +851,6 @@ begin
   RebuildDesignSurface;
   RefreshInspector;
 end;
-
-procedure TFormBuilderTab.OnPaletteClick(Sender: TObject);
-begin
-  SetTool(TPaletteTool((Sender as TButton).Tag));
-end;
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  PUBLIC FILE OPERATIONS
-// ═══════════════════════════════════════════════════════════════════════════
 
 procedure TFormBuilderTab.DoNew;
 begin
@@ -1075,7 +945,6 @@ begin
 
   if FTool <> ptPointer then
   begin
-    // Place a new control here
     KindInfo := KindInfoByTool(FTool);
     CD := FFormDef.AddControl(KindInfo);
     CD.SetLeft(X);
@@ -1087,14 +956,12 @@ begin
     Exit;
   end;
 
-  // Pointer mode + click on bare surface = select the form
   SelectControl(nil);
 end;
 
 procedure TFormBuilderTab.OnSurfaceMouseMove(Sender: TObject;
   Shift: TShiftState; X, Y: Integer);
 begin
-  // (Phase 2: marquee selection, hover hints)
 end;
 
 procedure TFormBuilderTab.OnSurfaceMouseUp(Sender: TObject;
@@ -1118,31 +985,14 @@ begin
         OnBtnDelete(Sender);
         Key := 0;
       end;
-    VK_LEFT :
-      begin
-        C.SetLeft(C.GetLeft - 1);
-        Key := 0;
-      end;
-    VK_RIGHT :
-      begin
-        C.SetLeft(C.GetLeft + 1);
-        Key := 0;
-      end;
-    VK_UP :
-      begin
-        C.SetTop(C.GetTop - 1);
-        Key := 0;
-      end;
-    VK_DOWN :
-      begin
-        C.SetTop(C.GetTop + 1);
-        Key := 0;
-      end;
+    VK_LEFT  : begin C.SetLeft(C.GetLeft - 1); Key := 0; end;
+    VK_RIGHT : begin C.SetLeft(C.GetLeft + 1); Key := 0; end;
+    VK_UP    : begin C.SetTop (C.GetTop  - 1); Key := 0; end;
+    VK_DOWN  : begin C.SetTop (C.GetTop  + 1); Key := 0; end;
   else
     Exit;
   end;
 
-  // Move the corresponding VCL control without rebuilding (smoother)
   for W in FCtrlMap.Keys do
     if FCtrlMap[W] = C then
     begin
@@ -1155,9 +1005,6 @@ begin
   RefreshInspector;
 end;
 
-// ---------------------------------------------------------------------------
-//  Click on a placed control
-// ---------------------------------------------------------------------------
 procedure TFormBuilderTab.OnDesignedCtrlMouseDown(Sender: TObject;
   Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 var
@@ -1213,10 +1060,6 @@ end;
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  RUNTIME (Phase 1 minimal)
-//
-//  Build a real TForm from the def and show it modally. Buttons are inert,
-//  Edits are editable, Labels are read-only. The form has a working close
-//  button so the user can dismiss it.
 // ═══════════════════════════════════════════════════════════════════════════
 
 procedure TFormBuilderTab.RunFormDef(FD: TFormDef);
@@ -1258,17 +1101,6 @@ begin
   finally
     FD.Free;
   end;
-end;
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  Stub: selection markers placeholder (Phase 2 implementation point)
-// ═══════════════════════════════════════════════════════════════════════════
-
-function TFormBuilderTab.AddSelectionMarkers(Ctrl: TWinControl): Boolean;
-begin
-  // Phase 2: draw resize handles around the selected control.
-  // For Phase 1 we just rely on the inspector to show which one is selected.
-  Result := False;
 end;
 
 end.

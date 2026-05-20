@@ -772,9 +772,9 @@ end;
 
 procedure TProjectTab.BuildUI;
 const
-  BW  = 80;
-  BH  = 28;
-  PAD = 5;
+  BW  = 88;
+  BH  = 30;
+  PAD = 8;
   DARK    = $00252526;
   DARKER  = $001E1E1E;
   GREEN   = $0056D364;

@@ -381,9 +381,9 @@ end;
 // ---------------------------------------------------------------------------
 procedure TMacroTab.BuildUI;
 const
-  BW  = 86;
-  BH  = 28;
-  PAD = 6;
+  BW  = 88;
+  BH  = 30;
+  PAD = 8;
 
   procedure Btn(var B: TButton; Parent: TWinControl;
                 const Cap: string; var X: Integer; H: TNotifyEvent;
