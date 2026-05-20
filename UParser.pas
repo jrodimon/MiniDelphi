@@ -1,4 +1,4 @@
-﻿unit UParser;
+unit UParser;
 
 // =============================================================================
 // MiniDelphi Toy Compiler & Learning IDE
@@ -97,7 +97,9 @@ implementation
 { EParseError }
 constructor EParseError.Create(const Msg: string; ALine, ACol: Integer);
 begin
-  inherited CreateFmt('Line %d, Col %d: %s', [ALine, ACol, Msg]);
+  // Line/Col are stored in fields and shown separately by the error
+  // renderer; keeping them out of the message body avoids double-display.
+  inherited Create(Msg);
   Line := ALine;
   Col  := ACol;
 end;
@@ -133,11 +135,123 @@ begin
   Inc(FPos);
 end;
 
+// ---------------------------------------------------------------------------
+//  Expect a specific token kind, or raise a friendly error.
+//
+//  This is where most of the user-facing parse errors come from.  The goal
+//  is to translate parser-internal token names ("tkSemicolon") into things
+//  a beginner recognises (a semicolon ";"), and to recognise common
+//  beginner-mistake patterns and attach an explanatory hint.
+// ---------------------------------------------------------------------------
 function TParser.Expect(Kind: TTokenKind): TToken;
+
+  // Translate token kinds into something a beginner recognises.
+  function FriendlyName(K: TTokenKind): string;
+  begin
+    case K of
+      tkSemicolon  : Result := 'a semicolon (";")';
+      tkColon      : Result := 'a colon (":")';
+      tkComma      : Result := 'a comma (",")';
+      tkDot        : Result := 'a period (".")';
+      tkAssign     : Result := 'an assignment (":=")';
+      tkEqual      : Result := 'an equals sign ("=")';
+      tkLParen     : Result := 'an opening parenthesis "("';
+      tkRParen     : Result := 'a closing parenthesis ")"';
+      tkBegin      : Result := 'the keyword "begin"';
+      tkEnd        : Result := 'the keyword "end"';
+      tkThen       : Result := 'the keyword "then"';
+      tkDo         : Result := 'the keyword "do"';
+      tkOf         : Result := 'the keyword "of"';
+      tkUntil      : Result := 'the keyword "until"';
+      tkTo         : Result := 'the keyword "to" or "downto"';
+      tkIdentifier : Result := 'a name (identifier)';
+      tkInteger    : Result := 'an integer';
+      tkFloat      : Result := 'a number';
+      tkString     : Result := 'a string literal';
+    else
+      Result := Format('"%s"', [TLexer.TokenKindName(K)]);
+    end;
+  end;
+
+  // Return a tailored hint for known beginner mistakes, or '' if none fits.
+  function PatternHint(Expected: TTokenKind; Got: TToken): string;
+  begin
+    Result := '';
+
+    // Missing semicolon before a keyword that begins a new statement
+    if (Expected = tkSemicolon) and
+       (Got.Kind in [tkEnd, tkElse, tkUntil, tkBegin,
+                     tkIf, tkWhile, tkRepeat, tkFor,
+                     tkWriteln, tkReadln, tkWrite,
+                     tkProcedure, tkFunction]) then
+      Result := 'It looks like the previous statement is missing a ' +
+                'semicolon (;) at its end.';
+
+    // ":=" vs "=" — common beginner confusion
+    if (Expected = tkAssign) and (Got.Kind = tkEqual) then
+      Result := 'Use ":=" (colon-equals) for assignment, not "=".  ' +
+                '"=" is only for comparison.';
+
+    // Likewise the inverse
+    if (Expected = tkEqual) and (Got.Kind = tkAssign) then
+      Result := 'Use "=" for comparison, not ":=".  ' +
+                '":=" is for assignment.';
+
+    // Forgot "then" after if-condition
+    if (Expected = tkThen) then
+      Result := 'Every "if" must be followed by "then".  ' +
+                'Example:  if x > 0 then writeln(x);';
+
+    // Forgot "do" after while/for header
+    if (Expected = tkDo) then
+      Result := 'Every "while" or "for" must be followed by "do".  ' +
+                'Example:  while i < 10 do inc(i);';
+
+    // Forgot "of" after case header
+    if (Expected = tkOf) then
+      Result := 'A "case" expression must be followed by "of".  ' +
+                'Example:  case x of  1 : doA;  2 : doB;  end;';
+
+    // Forgot "until" in repeat..until
+    if (Expected = tkUntil) then
+      Result := 'A "repeat" block must be closed with "until <condition>".';
+
+    // Mismatched parens
+    if (Expected = tkRParen) and
+       (Got.Kind in [tkSemicolon, tkEnd, tkEOF]) then
+      Result := 'Looks like a closing ")" is missing.  ' +
+                'Check that every "(" has a matching ")".';
+
+    // Stray semicolon where something else was expected
+    if (Got.Kind = tkSemicolon) and (Expected <> tkSemicolon) then
+      Result := 'There may be an extra ";" here.  ' +
+                'A semicolon ends a statement; it should not appear ' +
+                'between "if" and "then", or between a condition and "do".';
+  end;
+
+var
+  GotDesc : string;
+  Hint    : string;
 begin
   if Current.Kind <> Kind then
-    Error(Format('Expected %s but got ''%s''',
-      [TLexer.TokenKindName(Kind), Current.Value]));
+  begin
+    // Describe what we actually saw, in plain English
+    if Current.Kind = tkEOF then
+      GotDesc := 'the end of the file'
+    else if Current.Value <> '' then
+      GotDesc := Format('"%s"', [Current.Value])
+    else
+      GotDesc := Format('"%s"', [TLexer.TokenKindName(Current.Kind)]);
+
+    Hint := PatternHint(Kind, Current);
+
+    if Hint <> '' then
+      Error(Format('Expected %s but found %s.' + sLineBreak + '%s',
+        [FriendlyName(Kind), GotDesc, Hint]))
+    else
+      Error(Format('Expected %s but found %s.',
+        [FriendlyName(Kind), GotDesc]));
+  end;
   Result := Consume;
 end;
 
@@ -216,7 +330,14 @@ begin
       Match(tkDot);
     end
     else if Current.Kind <> tkEOF then
-      Error(Format('Expected BEGIN or end of file but got ''%s''',
+      Error(Format(
+        'Expected the main "begin" block but found "%s".' + sLineBreak +
+        'Every program needs a main block:' + sLineBreak +
+        '    begin' + sLineBreak +
+        '      // your code here' + sLineBreak +
+        '    end.' + sLineBreak +
+        'If you are writing a library file, save it as .mdp -- library ' +
+        'files have only declarations and no main block.',
         [Current.Value]));
 
     Result := Node;
@@ -959,7 +1080,13 @@ begin
     end;
 
   else
-    Error(Format('Unexpected token ''%s'' in expression', [Tok.Value]));
+    Error(Format(
+      'I don''t know what to do with "%s" here.' + sLineBreak +
+      'I was reading an expression and expected a number, a string, ' +
+      'a name, or "(".' + sLineBreak +
+      'Common causes: a missing operator (like + or *), an extra ' +
+      'punctuation mark, or a keyword used in the wrong place.',
+      [Tok.Value]));
     Result := nil; // keep compiler happy
   end;
 end;

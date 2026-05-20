@@ -21,7 +21,7 @@ uses
   Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.ExtCtrls,
   Vcl.Menus, Vcl.ComCtrls, Vcl.Buttons, Vcl.Graphics,
   ULexer, UParser, UAST, UInterpreter, UValidator,
-  ULearnTab, UProjectTab, UMacroTab, UFormBuilderTab,
+  ULearnTab, UProjectTab, UFormBuilderTab,
   UExampleProjects, UAboutDialog, UTheme, UPreferencesDialog;
 
 type
@@ -43,8 +43,6 @@ type
     FProjectTab     : TProjectTab;
     FTabForms       : TTabSheet;
     FFormBuilderTab : TFormBuilderTab;
-    FTabMacro       : TTabSheet;
-    FMacroTab       : TMacroTab;
 
     // Compiler tab
     FToolPanel      : TPanel;
@@ -411,9 +409,9 @@ constructor TFormMain.Create(AOwner: TComponent);
 begin
   inherited CreateNew(AOwner);
 
-  // VCL Styles needs to be set before any controls are created or it leaves
-  // some unstyled. Theme.Load picks the right style and applies it.
-  Theme.Load;
+  // NOTE: Theme.Load is called from the .dpr BEFORE Application.CreateForm.
+  // VCL Styles needs the style applied before any controls are constructed
+  // so they pick up the right paint colors.  See MiniDelphi.dpr.
 
   Caption   := 'MiniDelphi Toy Compiler';
   Width     := 1180;
@@ -448,17 +446,12 @@ begin
   FTabForms.PageControl    := FPages;
   FTabForms.Caption        := '  Forms  ';
 
-  FTabMacro                := TTabSheet.Create(FPages);
-  FTabMacro.PageControl    := FPages;
-  FTabMacro.Caption        := '  Macros  ';
-
   BuildCompilerTab;
   BuildCalcTab;
   BuildSnippetMenu;
   FLearnTab       := TLearnTab.Create(FTabLearn);
   FProjectTab     := TProjectTab.Create(FTabProject);
   FFormBuilderTab := TFormBuilderTab.Create(FTabForms);
-  FMacroTab       := TMacroTab.Create(FTabMacro);
 
   FProjectTab.OnProjectChanged := OnProjectChangedHandler;
 
@@ -1196,19 +1189,38 @@ end;
 
 procedure TFormMain.ShowValidationResults(V: TValidator;
   ParseErr: string; ParseLine, ParseCol: Integer);
+
+  // Add a message that may contain sLineBreak, prefixing every line with
+  // the same `|` continuation so the boxed error reads as a single block.
+  // The FirstPrefix is shown before the first line; subsequent lines get
+  // ContPrefix.  Both should already include trailing spaces if desired.
+  procedure AddBoxedLines(const FirstPrefix, ContPrefix, Body: string);
+  var
+    Parts : TArray<string>;
+    I     : Integer;
+  begin
+    Parts := Body.Split([sLineBreak], TStringSplitOptions.None);
+    if Length(Parts) = 0 then Exit;
+    FMemoOut.Lines.Add(FirstPrefix + Parts[0]);
+    for I := 1 to High(Parts) do
+      FMemoOut.Lines.Add(ContPrefix + Parts[I]);
+  end;
+
 var
   Issue          : TValidationIssue;
   Prefix         : string;
   II             : Integer;
   ECount, WCount : Integer;
   FirstErrorLine : Integer;
+  Header         : string;
 begin
   FMemoOut.Clear;
 
   if ParseErr <> '' then
   begin
     FMemoOut.Lines.Add('+=== PARSE ERROR ==============================');
-    FMemoOut.Lines.Add(Format('|  Line %d, Col %d: %s', [ParseLine, ParseCol, ParseErr]));
+    Header := Format('|  Line %d, Col %d: ', [ParseLine, ParseCol]);
+    AddBoxedLines(Header, '|     ', ParseErr);
     FMemoOut.Lines.Add('+===============================================');
     FMemoOut.Lines.Add('');
     if ParseLine > 0 then
@@ -1244,12 +1256,14 @@ begin
     end;
 
     if Issue.Line > 0 then
-      FMemoOut.Lines.Add(Format('%s  (line %d): %s', [Prefix, Issue.Line, Issue.Message]))
+      Header := Format('%s  (line %d): ', [Prefix, Issue.Line])
     else
-      FMemoOut.Lines.Add(Format('%s: %s', [Prefix, Issue.Message]));
+      Header := Format('%s: ', [Prefix]);
+
+    AddBoxedLines(Header, '|     ', Issue.Message);
 
     if Issue.Hint <> '' then
-      FMemoOut.Lines.Add(Format('|     -> %s', [Issue.Hint]));
+      AddBoxedLines('|     -> ', '|        ', Issue.Hint);
 
     if (Issue.Severity = vsError) and (Issue.Line > 0) and (FirstErrorLine < 0) then
       FirstErrorLine := Issue.Line;
@@ -1360,7 +1374,16 @@ begin
       on E: Exception do
       begin
         FMemoOut.Lines.Add('');
-        FMemoOut.Lines.Add('*** ERROR: ' + E.Message);
+        FMemoOut.Lines.Add('+=== RUNTIME ERROR ============================');
+        // Reuse the same prefix style as ShowValidationResults boxes.
+        var ErrParts := E.Message.Split([sLineBreak], TStringSplitOptions.None);
+        if Length(ErrParts) > 0 then
+        begin
+          FMemoOut.Lines.Add('|  ' + ErrParts[0]);
+          for var EI := 1 to High(ErrParts) do
+            FMemoOut.Lines.Add('|     ' + ErrParts[EI]);
+        end;
+        FMemoOut.Lines.Add('+===============================================');
         SetStatus('Runtime error.', True);
       end;
     end;

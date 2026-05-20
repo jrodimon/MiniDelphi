@@ -1,4 +1,4 @@
-﻿unit UValidator;
+unit UValidator;
 
 // =============================================================================
 // MiniDelphi Toy Compiler & Learning IDE
@@ -254,8 +254,10 @@ function TValidator.Validate: Boolean;
 begin
   if not Assigned(FProgram) then
   begin
-    AddIssue(vsError, 1, 1, 'Program could not be parsed.',
-      'Check for syntax errors — missing begin/end, mismatched parentheses, etc.');
+    AddIssue(vsError, 1, 1,
+      'The program could not be parsed.',
+      'Check for syntax errors -- missing begin/end, mismatched ' +
+      'parentheses, or stray punctuation.');
     Exit(False);
   end;
 
@@ -322,15 +324,20 @@ begin
   if not Assigned(FProgram.MainBlock) then
   begin
     AddIssue(vsError, 1, 1,
-      'Program has no main begin..end block.',
-      'Every MiniDelphi program must end with a begin...end. block.');
+      'This program has no main "begin..end." block.',
+      'Every MiniDelphi program needs a main block that runs when ' +
+      'the program starts:' + sLineBreak +
+      '    begin' + sLineBreak +
+      '      // your code here' + sLineBreak +
+      '    end.');
     Exit;
   end;
 
   if FProgram.MainBlock.Stmts.Count = 0 then
     AddIssue(vsWarning, 1, 1,
-      'Main program block is empty.',
-      'Add some statements between begin and end.');
+      'The main program block is empty.',
+      'Add at least one statement between "begin" and "end." -- ' +
+      'otherwise the program does nothing.');
 end;
 
 // ---------------------------------------------------------------------------
@@ -352,8 +359,9 @@ begin
     if not Assigned(R.Body) or (R.Body.Stmts.Count = 0) then
     begin
       AddIssue(vsWarning, 1, 1,
-        Format('Procedure/function "%s" has an empty body.', [R.Name]),
-        'Add statements inside the begin..end block.');
+        Format('The procedure or function "%s" has an empty body.', [R.Name]),
+        'Add statements inside its begin..end block, or remove the ' +
+        'declaration if it isn''t needed yet.');
       Continue;
     end;
 
@@ -459,8 +467,9 @@ begin
        not Scope.ContainsKey(LowerCase(C.Name)) then
     begin
       AddIssue(vsWarning, 0, 0,
-        Format('Call to unknown procedure "%s".', [C.Name]),
-        Format('Check the spelling. Did you forget to declare it?', []));
+        Format('I don''t know a procedure called "%s".', [C.Name]),
+        'Check the spelling, or declare it earlier in the program. ' +
+        'If it lives in a library file, add a "uses" clause for that file.');
     end
     else
       CheckCallArgs(C.Name, C.Args, 0, 0);
@@ -494,8 +503,9 @@ begin
     // Check for  while true do  without obvious break — warn about infinite loop
     if (Wh.Condition is TBoolLitExpr) and TBoolLitExpr(Wh.Condition).Value then
       AddIssue(vsWarning, 0, 0,
-        '"while true do" loop detected.',
-        'Make sure you have a "break" or "exit" inside to avoid an infinite loop.');
+        'A "while true do" loop will run forever unless something inside it stops it.',
+        'Make sure there is a "break" or "exit" inside this loop, or ' +
+        'change the condition to something that eventually becomes false.');
     CheckExpr(Wh.Condition, Scope);
     CheckStatement(Wh.Body, Scope);
   end
@@ -550,8 +560,9 @@ begin
        not FKnownVars.ContainsKey(LowerCase(VE.Name)) then
     begin
       AddIssue(vsWarning, 0, 0,
-        Format('Variable "%s" may not have been declared.', [VE.Name]),
-        'Check the spelling or add it to your var block.');
+        Format('The name "%s" has not been declared.', [VE.Name]),
+        'Check the spelling, or add it to a var block:' + sLineBreak +
+        '    var ' + VE.Name + ' : Integer;');
     end;
   end
 
@@ -563,8 +574,9 @@ begin
        not FKnownRout.ContainsKey(LowerCase(CE.Name)) then
     begin
       AddIssue(vsWarning, 0, 0,
-        Format('Call to unknown function "%s".', [CE.Name]),
-        'Check the spelling. Did you forget to declare it?');
+        Format('I don''t know a function called "%s".', [CE.Name]),
+        'Check the spelling, or declare it earlier in the program. ' +
+        'If it lives in a library file, add a "uses" clause.');
     end
     else
       CheckCallArgs(CE.Name, CE.Args, 0, 0);
@@ -626,15 +638,16 @@ begin
       begin
         if ARG_SPECS[I].Min = ARG_SPECS[I].Max then
           AddIssue(vsError, Line, Col,
-            Format('"%s" expects %d argument(s) but got %d.',
+            Format('"%s" needs %d argument(s), but you gave it %d.',
               [Name, ARG_SPECS[I].Min, Got]),
-            Format('Check the call: %s requires exactly %d parameter(s).',
-              [Name, ARG_SPECS[I].Min]))
+            Format('Check the number of values inside the parentheses ' +
+              'after "%s".', [Name]))
         else
           AddIssue(vsError, Line, Col,
-            Format('"%s" expects %d..%d argument(s) but got %d.',
+            Format('"%s" needs between %d and %d argument(s), but you gave it %d.',
               [Name, ARG_SPECS[I].Min, ARG_SPECS[I].Max, Got]),
-            Format('Check the call to %s.', [Name]));
+            Format('Check the number of values inside the parentheses ' +
+              'after "%s".', [Name]));
       end;
       Exit;
     end;
@@ -645,9 +658,11 @@ begin
   begin
     if Got <> Expected then
       AddIssue(vsWarning, Line, Col,
-        Format('"%s" declared with %d parameter(s) but called with %d.',
+        Format('"%s" was declared to take %d argument(s), but here ' +
+          'it is called with %d.',
           [Name, Expected, Got]),
-        'Check the number of arguments in the call.');
+        'Either fix the number of arguments here, or update the ' +
+        'declaration to match.');
   end;
 end;
 
@@ -660,14 +675,16 @@ begin
   // Right side is an integer literal zero
   if (Node.Right is TIntLitExpr) and (TIntLitExpr(Node.Right).Value = 0) then
     AddIssue(vsError, 0, 0,
-      Format('Division by zero: "%s 0" will always crash.', [Node.Op]),
-      'The right-hand side of ' + Node.Op + ' cannot be zero.')
+      Format('This will divide by zero ("%s 0").', [Node.Op]),
+      'Anything divided by zero is undefined.  Either remove this ' +
+      'expression, or guard it with an "if" check on the divisor.')
 
   // Right side is a float literal zero
   else if (Node.Right is TFloatLitExpr) and (TFloatLitExpr(Node.Right).Value = 0) then
     AddIssue(vsError, 0, 0,
-      'Division by zero: dividing by 0.0 will produce Infinity or crash.',
-      'Check the denominator value.');
+      'This will divide by zero (the right side is 0.0).',
+      'Anything divided by zero is undefined.  Use an "if" check ' +
+      'on the divisor before dividing.');
 end;
 
 // =============================================================================
@@ -708,7 +725,7 @@ begin
   end;
 
   if Errors = 0 then
-    Result := Format('Validation OK — %d warning(s)', [Warnings])
+    Result := Format('Validation OK -- %d warning(s)', [Warnings])
   else
     Result := Format('%d error(s), %d warning(s)', [Errors, Warnings]);
 end;

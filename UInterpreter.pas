@@ -362,10 +362,14 @@ end;
 procedure TInterpreter.Tick;
 begin
   if FStop then
-    raise Exception.Create('Execution stopped by user');
+    raise Exception.Create('Execution stopped by the Stop button.');
   Inc(FSteps);
   if FSteps > FMaxSteps then
-    raise Exception.Create('Step limit reached — possible infinite loop');
+    raise Exception.Create(
+      'Your program ran for too many steps without finishing.' + sLineBreak +
+      'This usually means an infinite loop -- check that loop conditions ' +
+      'eventually become false, and that any counters inside the loop ' +
+      'are being updated.');
 end;
 
 constructor TInterpreter.Create(AProgram: TProgramNode; AOutput: TStrings);
@@ -784,7 +788,13 @@ begin
     '*': if BothNumeric then
            if EitherFloat then Result := TValue.MakeFloat(L.ToFloat * R.ToFloat)
            else                Result := TValue.MakeInt  (L.ToInt   * R.ToInt);
-    '/':                       Result := TValue.MakeFloat(L.ToFloat / R.ToFloat);
+    '/': if R.ToFloat <> 0 then
+           Result := TValue.MakeFloat(L.ToFloat / R.ToFloat)
+         else
+           raise Exception.Create(
+             'Tried to divide by zero using "/".' + sLineBreak +
+             'Before dividing, check that the divisor is not zero, for example:' +
+             sLineBreak + '    if y <> 0 then z := x / y;');
     '=': if L.Kind = vkString then Result := TValue.MakeBool(L.SVal  =  R.SVal)
          else                       Result := TValue.MakeBool(L.ToFloat = R.ToFloat);
     '<': if Node.Op = '<>' then
@@ -802,10 +812,17 @@ begin
            Result := TValue.MakeBool(L.ToFloat > R.ToFloat);
     'd': // div
          if R.ToInt <> 0 then Result := TValue.MakeInt(L.ToInt div R.ToInt)
-         else raise Exception.Create('Division by zero (div)');
+         else raise Exception.Create(
+           'Tried to divide by zero using "div".' + sLineBreak +
+           'Before dividing, check that the divisor is not zero, for example:' +
+           sLineBreak + '    if y <> 0 then z := x div y;');
     'm': // mod
          if R.ToInt <> 0 then Result := TValue.MakeInt(L.ToInt mod R.ToInt)
-         else raise Exception.Create('Division by zero (mod)');
+         else raise Exception.Create(
+           'Tried to take "mod" by zero.' + sLineBreak +
+           'Before using "mod", check that the right side is not zero, ' +
+           'for example:' + sLineBreak +
+           '    if y <> 0 then r := x mod y;');
   else
     Result := TValue.MakeNil;
   end;
@@ -848,7 +865,10 @@ begin
   Result := TValue.MakeNil;
 
   if not FRoutines.TryGetValue(LowerCase(Name), Decl) then
-    raise Exception.CreateFmt('Unknown procedure/function: %s', [Name]);
+    raise Exception.CreateFmt(
+      'There is no procedure or function called "%s".' + sLineBreak +
+      'Check the spelling, or add a "uses" clause for the library that ' +
+      'defines it.', [Name]);
 
   Env := TEnvironment.Create(FGlobal);
   try
@@ -1518,7 +1538,10 @@ begin
   Result := TValue.MakeNil;
 
   if not ClassRegistry.ClassExists(Node.ClassRef) then
-    raise Exception.CreateFmt('Unknown class: %s', [Node.ClassRef]);
+    raise Exception.CreateFmt(
+      'There is no class called "%s".' + sLineBreak +
+      'Check the spelling, or make sure its declaration appears before ' +
+      'this code.', [Node.ClassRef]);
 
   // Create the instance
   Obj := TObjectInstance.Create(Node.ClassRef);
@@ -1589,7 +1612,10 @@ var
 begin
   Result := TValue.MakeNil;
   if M.IsAbstract then
-    raise Exception.CreateFmt('Cannot call abstract method %s', [M.Name]);
+    raise Exception.CreateFmt(
+      'The method "%s" is abstract and has no body of its own.' + sLineBreak +
+      'Create an instance of a subclass that provides this method, or ' +
+      'give the method an implementation.', [M.Name]);
 
   Env := TEnvironment.Create(FGlobal);
   try
@@ -1710,7 +1736,12 @@ begin
   OV := EvalExpr(Node.Obj, Env);
 
   if OV.Kind <> vkObject then
-    raise Exception.CreateFmt('Cannot access field "%s" on non-object',
+    raise Exception.CreateFmt(
+      'Tried to read field "%s" on something that is not an object.' +
+      sLineBreak +
+      'The variable on the left of the dot is either nil or not a class ' +
+      'instance.  Construct it first, for example:' + sLineBreak +
+      '    myObj := TMyClass.Create;',
       [Node.FieldName]);
 
   // Built-in pseudo-fields on all objects
@@ -1726,8 +1757,10 @@ begin
   if Obj.Fields.TryGetValue(FName, FPtr) and Assigned(FPtr) then
     Result := TValue(FPtr^)
   else
-    raise Exception.CreateFmt('Unknown field "%s" on %s',
-      [Node.FieldName, Obj.ObjClass]);
+    raise Exception.CreateFmt(
+      'Class "%s" has no field called "%s".' + sLineBreak +
+      'Check the spelling, or add the field to the class definition.',
+      [Obj.ObjClass, Node.FieldName]);
 end;
 
 // ---------------------------------------------------------------------------
@@ -1765,7 +1798,12 @@ begin
   if LowerCase(Node.MethodName) = 'free' then Exit;
 
   if OV.Kind <> vkObject then
-    raise Exception.CreateFmt('Cannot call method "%s" on non-object',
+    raise Exception.CreateFmt(
+      'Tried to call method "%s" on something that is not an object.' +
+      sLineBreak +
+      'The variable on the left of the dot is either nil or not a class ' +
+      'instance.  Construct it first, for example:' + sLineBreak +
+      '    myObj := TMyClass.Create;',
       [Node.MethodName]);
 
   Obj := OV.ObjVal;
@@ -1800,7 +1838,12 @@ begin
     Exit;
 
   if OV.Kind <> vkObject then
-    raise Exception.CreateFmt('Cannot assign field "%s" on non-object',
+    raise Exception.CreateFmt(
+      'Tried to write to field "%s" on something that is not an object.' +
+      sLineBreak +
+      'The variable on the left of the dot is either nil or not a class ' +
+      'instance.  Construct it first, for example:' + sLineBreak +
+      '    myObj := TMyClass.Create;',
       [Node.FieldName]);
 
   Obj   := OV.ObjVal;
@@ -1837,7 +1880,12 @@ begin
   if LowerCase(Node.MethodName) = 'free' then Exit;
 
   if OV.Kind <> vkObject then
-    raise Exception.CreateFmt('Cannot call method "%s" on non-object',
+    raise Exception.CreateFmt(
+      'Tried to call method "%s" on something that is not an object.' +
+      sLineBreak +
+      'The variable on the left of the dot is either nil or not a class ' +
+      'instance.  Construct it first, for example:' + sLineBreak +
+      '    myObj := TMyClass.Create;',
       [Node.MethodName]);
 
   Obj := OV.ObjVal;
@@ -1867,7 +1915,10 @@ var
 begin
   // Get Self
   if not Env.GetVar('self', SelfVal) or (SelfVal.Kind <> vkObject) then
-    raise Exception.Create('"inherited" used outside a method');
+    raise Exception.Create(
+      'The word "inherited" can only be used inside a method body.' +
+      sLineBreak +
+      'It calls the parent class''s version of the current method.');
 
   Obj := SelfVal.ObjVal;
 
